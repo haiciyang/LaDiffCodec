@@ -1,0 +1,1 @@
+CUDA_VISIBLE_DEVICES=2, python train.py --seq_len_p_sec 2 --seq_length 320 --exp_name uncond --dimension 256 --n_residual_layers 3 --batch_size 80
