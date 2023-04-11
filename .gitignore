@@ -1,0 +1,7 @@
+saved_models/
+results/
+logs/
+*.png
+runs/
+eval_wavs/
+outputs/
