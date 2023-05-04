@@ -22,34 +22,21 @@ from torch.utils.tensorboard import SummaryWriter
 from torch.utils.data.distributed import DistributedSampler
 
 # from ema_pytorch import EMA
-
+from .utils import EMA, save_img, save_plot, save_torch_wav, load_model, nn_parameters
 from .model import DiffAudioRep
 from .dataset import EnCodec_data
+from .dataset_libri import Dataset_Libri
 
 
 use_cuda = torch.cuda.is_available()
 device = torch.device("cuda" if use_cuda else "cpu")
 
-def save_img(rep, name, note):
-    *_, h, w = rep.shape
-    rep = rep.reshape(h, w).cpu().data.numpy()
-    plt.imshow(rep, aspect='auto', origin='lower')
-    plt.savefig(f"{name}_{note}.png")
-    plt.clf()
+def apply_mask(rep, ratio=0.5):
 
-def save_plot(x, name, note):
-    x = x.squeeze().cpu().data.numpy()
-    plt.plot(x/np.max(np.abs(x)))
-    plt.savefig(f"{name}_{note}.png")
-    plt.clf()
-
-def save_torch_wav(x, name, note):
-
-    x = x.squeeze().cpu().data.numpy()
-    # plt.plot(x/np.max(np.abs(x)))
-    # plt.savefig(f"{name}_{note}.png")
-    # plt.clf()
-    wavfile.write(f"eval_wavs/{note}_{name}.wav", 16000, x/np.max(np.abs(x)))
+    B, C, L = rep.shape
+    mask = torch.tensor([1, 0, 0]).repeat(C, (L+2)//3)
+    mask = mask[None,:,:L].to(rep.device)
+    return rep * mask
 
 if __name__ == '__main__':
 
@@ -62,6 +49,7 @@ if __name__ == '__main__':
     parser.add_argument('--seq_len_p_sec', type=float, default=1.8000) 
     parser.add_argument('--sample_rate', type=int, default=16000)
     parser.add_argument('--model_path', type=str, default='')
+    parser.add_argument('--qtzer_path', type=str, default='')
     parser.add_argument('--note', type=str, default='')
 
     # Encoder and decoder
@@ -72,69 +60,157 @@ if __name__ == '__main__':
     parser.add_argument('--lstm', type=int, default=2)
     parser.add_argument('--n_residual_layers', type=int, default=1)
     parser.add_argument('--enc_ratios', nargs='+', type=int)
+    parser.add_argument('--final_activation', type=str, default=None)
+
 
     parser.add_argument('--run_diff', dest='run_diff', action='store_true')
     parser.add_argument('--run_vae', dest='run_vae', action='store_true')
 
     # Diff model
     parser.add_argument('--diff_dims', type=int, default=128)
-    parser.add_argument('--self_cond', dest='self_cond', action='store_true')
+    parser.add_argument('--qtz_condition', dest='qtz_condition', action='store_true')
+    parser.add_argument('--self_condition', dest='self_condition', action='store_true')
     parser.add_argument('--seq_length', type=int, default=16000)
     parser.add_argument('--model_type', type=str, default='transformer')  
+    parser.add_argument('--scaling', dest='scaling', action='store_true')
+    parser.add_argument('--sampling_timesteps', type=int, default=1000)
 
     
     inp_args = parser.parse_args() # Input arguments
 
     # valid_dataset = EnCodec_data(inp_args.data_path, task = 'valid', seq_len_p_sec = inp_args.seq_len_p_sec, sample_rate=inp_args.sample_rate, multi=False, n_spks = inp_args.n_spks)
-    # valid_loader = DataLoader(valid_dataset, batch_size=1, pin_memory=True)
+    valid_dataset = Dataset_Libri(task = 'eval', seq_len_p_sec = inp_args.seq_len_p_sec)
 
-    model = DiffAudioRep(rep_dims=inp_args.rep_dims, diff_dims=inp_args.diff_dims, n_residual_layers=inp_args.n_residual_layers, n_filters=inp_args.n_filters, lstm=inp_args.lstm, quantization=inp_args.quantization, bandwidth=inp_args.bandwidth, sample_rate=inp_args.sample_rate, self_condition=inp_args.self_cond, seq_length=inp_args.seq_length, ratios=inp_args.enc_ratios, run_diff=inp_args.run_diff, run_vae=inp_args.run_vae, model_type=inp_args.model_type).to(device)
+    valid_loader = DataLoader(valid_dataset, batch_size=1, pin_memory=True)
 
+    # model = DiffAudioRep(rep_dims=inp_args.rep_dims, diff_dims=inp_args.diff_dims, n_residual_layers=inp_args.n_residual_layers, n_filters=inp_args.n_filters, lstm=inp_args.lstm, quantization=inp_args.quantization, bandwidth=inp_args.bandwidth, sample_rate=inp_args.sample_rate, self_condition=inp_args.self_cond, seq_length=inp_args.seq_length, ratios=inp_args.enc_ratios, run_diff=inp_args.run_diff, run_vae=inp_args.run_vae, model_type=inp_args.model_type).to(device)
 
-    state_dict = torch.load(inp_args.model_path)
-    model_dict = OrderedDict()
-    pattern = re.compile('module.')
-    for k,v in state_dict.items():
-        if re.search("module", k):
-            model_dict[re.sub(pattern, '', k)] = v
-        else:
-            model_dict = state_dict
-    model.load_state_dict(model_dict, strict=False)
+    model = DiffAudioRep(**vars(inp_args)).to(device)
+    # model_qtz = DiffAudioRep(**vars(inp_args)).to(device)
 
-    note = inp_args.model_path.split('/')[-1][:-5]
-
-    # # Conditioned
-    # with torch.no_grad():
-    #     for batch in valid_loader:
-
-    #         # ---- Speaker embeddings and estimated separation learnt from mixture sources ----
-    #         x = batch.unsqueeze(1).to(torch.float).to(device)
-            
-    #         nums, x_hat = model(x) # nums: [total_loss, diff_loss, rec_loss]
-
-    #         # print(nums)
-
-    #         # print(x_hat.shape)
-    #         # fake()
-
-    #         # save_torch_wav(inputs, 'mix', note)
-    #         save_torch_wav(x, 'x', note)
-    #         save_torch_wav(x_hat, 'x_hat', note)
-
-    #         break
-
-
-    # Unconditioned
-    self.ema.ema_model.eval()
-    rep = model.diffusion.sample(batch_size=1)    
+    if inp_args.run_diff:
+        ema = EMA(
+            model.diffusion,
+            beta = 0.9999,              # exponential moving average factor
+            update_after_step = 100,    # only after this number of .update() calls will it start updating
+            update_every = 10,          # how often to actually update, to save on compute (updates every 10th .update() call)
+        )
+        ema = load_model(ema, inp_args.model_path[:-15]+'ema_best.amlt', strict=True)
+        ema.ema_model.eval()
     
-    samples = model.decoder(rep)
+
+    model = load_model(model, inp_args.model_path, strict=False)
+    # model_qtz= load_model(model_qtz, inp_args.qtzer_path, strict=False)
+    model.eval()
+    # model_qtz.eval()
+    
+    # note = inp_args.model_path.split('/')[-1][:-5]
+    note = '8_ae_tanh'
+
+    # Conditioned
+    with torch.no_grad():
+        for idx, batch in enumerate(valid_loader):
+
+            if idx < 300:
+                continue
+
+            # ---- Speaker embeddings and estimated separation learnt from mixture sources ----
+            x = batch.unsqueeze(1).to(torch.float).to(device)
+            
+            t = torch.tensor([300]).to(device)
+            # t = None
+            
+            nums, *reps = model(x, t)
+            # nums, *reps = model_qtz(x, t)
+
+            # x_rep = model_qtz.encoder(x)
+            # quantizedResults = model_qtz.quantizer(x_rep, sample_rate=model_qtz.frame_rate, bandwidth=model_qtz.bandwidth)
+            # x_rep_qtz = quantizedResults.quantized
+            # # x_rep_qtz = apply_mask(x_rep_qtz)
+            # x_hat = model_qtz.decoder(x_rep_qtz)
+
+            # # ======
+            # save_plot(x, f'x_t{t[0]}', note=note)
+            # save_plot(x_hat, f'x_hat_t{t[0]}', note=note)
+            # save_torch_wav(x, f'x_t{t[0]}', note=note)
+            # save_torch_wav(x_hat, f'x_hat_t{t[0]}', note=note)
+            # break
+            # # ======
+
+            # x_hat, x0, predicted_x0, xt, t, qtz_x0 = reps
+
+            # qtz_x0 = apply_mask(qtz_x0)
+
+            x_hat = reps[0]
+
+            # print(torch.mean(xt.squeeze(),0).mean())
+            # print(torch.std(xt.squeeze(),0).mean())
+
+            # ----- Sampling -----
+            # sample = ema.ema_model.sample(batch_size=1, condition=qtz_x0)
+            # x_sample = model.decoder(sample)
+
+            # sample = model.diffusion.sample(batch_size=1)
+            # x_sample = model.decoder(sample)
+
+            # ----- Infilling ----
+
+            # sample = model.diffusion.infilling(condition=x_rep_qtz, offset=200, lam=0.5)
+            # x_sample_fl = model.decoder(sample)
+            # diff_fl = sample - x_rep_qtz
+
+            # sample = model.diffusion.halfway_sampling(img=x_rep_qtz, t=400)
+            # print(sum(sample-x_rep_qtz))
+            # x_sample_half = model.decoder(sample)
+            # diff_half = sample - x_rep_qtz
 
 
-    save_torch_wav(samples[0], name='outwav', note=note)
-    save_plot(samples[0], name='outwav_plot', note=note)
+            out_dir = 'outputs/'
+            px = '12'
+            # for i in range(1):
+            # save_img(x0, name='rep', note=note, out_path = out_dir)
+            # save_img(predicted_x0, name=f'pred_t{t[0]}', note=note, out_path = out_dir)
+            # save_img(sample, name=f'sample_{px}', note=note, out_path = out_dir)
+            # # save_img(qtz_x0, name=f'qtz_{px}', note=note, out_path = out_dir)
+            # # save_img(x_rep, f'x_rep_{px}', note=note, out_path = out_dir)
+            # # save_img(x_rep_qtz, f'x_rep_qtz_{px}', note=note, out_path = out_dir)
+            # # save_img(x_rep-x_rep_qtz, f'diff_x_rep_{px}', note=note, out_path = out_dir)
+            # # save_img(diff_half, f'diff_fl_{px}', note=note, out_path = out_dir)
+            # # save_img(diff_fl, f'diff_fl_{px}', note=note, out_path = out_dir)
 
-    save_img(rep[0], name='rep_img', note=note)
+            # # save_plot(x, f'x', note=note, out_path = out_dir)
+            # # save_plot(x_hat, f'x_hat_t{t[0]}', note=note, out_path = out_dir)
+            # save_plot(x_sample, 'x_sample', note=note, out_path = out_dir)
+            
+            save_torch_wav(x, f'x', note=note, out_path = out_dir)
+            save_torch_wav(x_hat, f'x_hat_{px}', note=note, out_path = out_dir)
+            # save_torch_wav(x_hat2, f'x_hat2_{px}', note=note, out_path = out_dir)
+            # save_torch_wav(x_hat2, f'x_hat2', note=note, out_path = out_dir)
+
+            # save_torch_wav(x_sample_fl, f'x_sample_fl_{px}', note=note, out_path = out_dir)
+            # save_torch_wav(x_sample, f'x_sample_ema{px}', note=note, out_path = out_dir)
+
+            # # save_img(sample, name='sample', note=note, out_path='outputs/')
+
+            break
+
+            # if idx == 2:
+            #     break
+
+
+
+    # # Unconditioned
+    
+
+    # sampled_rep = model.diffusion.sample(batch_size=1)    
+    
+    # samples = model.decoder(rep)
+
+
+    # save_torch_wav(samples, name='outwav', note=note)
+    # save_plot(samples, name='outwav_plot', note=note)
+
+    # save_img(rep, name='rep_img', note=note)
 
 
 

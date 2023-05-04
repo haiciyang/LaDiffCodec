@@ -9,11 +9,13 @@ import torch
 from torchvision.transforms.functional import to_pil_image, resize
 
 from labml import experiment, monit
+from torch.utils.data import Dataset, DataLoader
 from labml_nn.diffusion.ddpm import DenoiseDiffusion, gather
 from labml_nn.diffusion.ddpm.experiment import Configs
 
 from .model import DiffAudioRep
-
+from .dataset import EnCodec_data
+from .utils import save_img, save_plot, save_torch_wav, load_model
 
 class Sampler:
     """
@@ -220,14 +222,11 @@ class Sampler:
         # $$x_0 \sim \textcolor{lightgreen}{p_\theta}(x_0|x_t)$$
         x0 = self._sample_x0(xt, self.n_steps)
 
-        
-
         # Show images
         for i in range(n_samples):
             self.show_image(x0[i], title)
 
         return x0
-        
 
 
     def p_sample(self, xt: torch.Tensor, t: torch.Tensor, eps_theta: torch.Tensor):
@@ -274,20 +273,6 @@ class Sampler:
 use_cuda = torch.cuda.is_available()
 device = torch.device("cuda" if use_cuda else "cpu")
 
-def save_plot(x, name, note):
-    x = x.squeeze().cpu().data.numpy()
-    plt.plot(x/np.max(np.abs(x)))
-    plt.savefig(f"{name}_{note}.png")
-    plt.clf()
-
-def save_torch_wav(x, name, note):
-
-    x = x.squeeze().cpu().data.numpy()
-    # plt.plot(x/np.max(np.abs(x)))
-    # plt.savefig(f"{name}_{note}.png")
-    # plt.clf()
-    wavfile.write(f"eval_wavs/{note}_{name}.wav", 16000, x/np.max(np.abs(x)))
-
 
 def main():
     """Generate samples"""
@@ -311,64 +296,93 @@ def main():
     parser.add_argument('--lstm', type=int, default=2)
     parser.add_argument('--n_residual_layers', type=int, default=1)
     parser.add_argument('--enc_ratios', nargs='+', type=int)
+    parser.add_argument('--final_activation', type=str, default=None)
 
     parser.add_argument('--run_diff', dest='run_diff', action='store_true')
     parser.add_argument('--run_vae', dest='run_vae', action='store_true')
 
     # Diff model
     parser.add_argument('--diff_dims', type=int, default=128)
-    parser.add_argument('--self_cond', dest='self_cond', action='store_true')
+    parser.add_argument('--self_condition', dest='self_cond', action='store_true')
     parser.add_argument('--seq_length', type=int, default=16000)
     parser.add_argument('--model_type', type=str, default='transformer')  
+    parser.add_argument('--scaling', dest='scaling', action='store_true')
 
     
     inp_args = parser.parse_args() # Input arguments
 
-    # valid_dataset = EnCodec_data(inp_args.data_path, task = 'valid', seq_len_p_sec = inp_args.seq_len_p_sec, sample_rate=inp_args.sample_rate, multi=False, n_spks = inp_args.n_spks)
-    # valid_loader = DataLoader(valid_dataset, batch_size=1, pin_memory=True)
+    valid_dataset = EnCodec_data(inp_args.data_path, task = 'valid', seq_len_p_sec = inp_args.seq_len_p_sec, sample_rate=inp_args.sample_rate, multi=False, n_spks = inp_args.n_spks)
+    valid_loader = DataLoader(valid_dataset, batch_size=1, pin_memory=True)
 
-    model = DiffAudioRep(rep_dims=inp_args.rep_dims, diff_dims=inp_args.diff_dims, n_residual_layers=inp_args.n_residual_layers, n_filters=inp_args.n_filters, lstm=inp_args.lstm, quantization=inp_args.quantization, bandwidth=inp_args.bandwidth, sample_rate=inp_args.sample_rate, self_condition=inp_args.self_cond, seq_length=inp_args.seq_length, ratios=inp_args.enc_ratios, run_diff=inp_args.run_diff, run_vae=inp_args.run_vae, model_type=inp_args.model_type).to(device)
+    # model = DiffAudioRep(rep_dims=inp_args.rep_dims, diff_dims=inp_args.diff_dims, n_residual_layers=inp_args.n_residual_layers, n_filters=inp_args.n_filters, lstm=inp_args.lstm, quantization=inp_args.quantization, bandwidth=inp_args.bandwidth, sample_rate=inp_args.sample_rate, self_condition=inp_args.self_cond, seq_length=inp_args.seq_length, ratios=inp_args.enc_ratios, run_diff=inp_args.run_diff, run_vae=inp_args.run_vae, model_type=inp_args.model_type).to(device)
 
+    model = DiffAudioRep(**vars(inp_args)).to(device)
 
-    state_dict = torch.load(inp_args.model_path)
-    model_dict = OrderedDict()
-    pattern = re.compile('module.')
-    for k,v in state_dict.items():
-        if re.search("module", k):
-            model_dict[re.sub(pattern, '', k)] = v
-        else:
-            model_dict = state_dict
-    model.load_state_dict(model_dict, strict=False)
+    # if inp_args.run_diff:
+    #     ema = EMA(
+    #         model.diffusion,
+    #         beta = 0.9999,              # exponential moving average factor
+    #         update_after_step = 100,    # only after this number of .update() calls will it start updating
+    #         update_every = 10,          # how often to actually update, to save on compute (updates every 10th .update() call)
+    #     )
+    #     ema = load_model(ema, inp_args.model_path[:-5]+'_ema.amlt', strict=True)
+    #     ema.ema_model.eval()
+    
 
-    note = inp_args.model_path.split('/')[-1][:-5]
+    model = load_model(model, inp_args.model_path, strict=True)
+    model.eval()
 
-    # Create sampler
     sampler = Sampler(diffusion=model.diffusion,
                       image_channels=1,
                       image_size_h=128,
                       image_size_w=800,
                       device=device)
 
-    # Start evaluation
+    
+    # note = inp_args.model_path.split('/')[-1][:-5]
+    note = '0414_unet2D'
 
-    # No gradients
+    # Conditioned
     with torch.no_grad():
-        # Sample an image with an denoising animation
-        # sampler.sample_animation()
-        x0 = sampler.sample(1, f'rep_{note}.png')
-        # print(x0.shape)
-        output = model.decoder(x0[0])
+        for batch in valid_loader:
 
-        if False:
-            print('kk')
-            # # Get some images fro data
-            # data = next(iter(configs.data_loader)).to(configs.device)
+            # ---- Speaker embeddings and estimated separation learnt from mixture sources ----
+            x = batch.unsqueeze(1).to(torch.float).to(device)
+            
+            t = torch.tensor([200]).to(device)
+            # t = None
+            
+            # nums, x_hat, xt, t = model(x, t)
+            nums, *reps = model(x, t)
 
-            # # Create an interpolation animation
-            # sampler.interpolate_animate(data[0], data[1])
-        save_plot(output[0], name='outwav_plot', note=note)
-        save_torch_wav(output[0], name='outwav', note=note)
+            # ==== samples ==== 
+            # sampled = sampler.sample(1, f'rep_{note}.png')
+            # save_plot(sampled, 'sample', note=note)
 
-#
+            # output = model.decoder(x0[0])
+            # =================
+
+            x_hat, x0, predicted_x0, noise, eps_theta, xt, t, qtz_x0 = reps
+
+
+            out_dir = 'outputs/'
+            # for i in range(1):
+            save_img(x0, name='rep', note=note, out_path = out_dir)
+            save_img(predicted_x0, name=f'pred_t{t[0]}', note=note, out_path = out_dir)
+            # save_img(sample, name=f'sample', note=note, out_path = out_dir)
+
+            save_plot(x, f'x_t{t[0]}', note=note, out_path = out_dir)
+            save_plot(x_hat, f'x_hat_t{t[0]}', note=note, out_path = out_dir)
+            # save_plot(x_sample, 'x_sample', note=note, out_path = out_dir)
+            
+            save_torch_wav(x, f'x_t{t[0]}', note=note, out_path = out_dir)
+            save_torch_wav(x_hat, f'x_hat_t{t[0]}', note=note, out_path = out_dir)
+            # save_torch_wav(x_sample, 'x_sample', note=note, out_path = out_dir)
+
+            # # save_img(sample, name='sample', note=note, out_path='outputs/')
+
+
+            break
+
 if __name__ == '__main__':
     main()

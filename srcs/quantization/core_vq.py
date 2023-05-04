@@ -212,7 +212,6 @@ class EuclideanCodebook(nn.Module):
         embed_onehot = F.one_hot(embed_ind, self.codebook_size).type(dtype)
         embed_ind = self.postprocess_emb(embed_ind, shape)
         quantize = self.dequantize(embed_ind)
-
         if self.training:
             # We do the expiry of code at that point as buffers are in sync
             # and all the workers will take the same decision.

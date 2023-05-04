@@ -1,7 +1,11 @@
 import os
+import re
 import copy
 import torch
+import numpy as np
 from torch import nn
+from scipy.io import wavfile
+from collections import OrderedDict
 from matplotlib import pyplot as plt
 
 
@@ -17,19 +21,92 @@ from matplotlib import pyplot as plt
 #         file.write(records)
 #         file.flush()
 
-def save_img(rep, name, note, out_path):
 
-    directory = out_path + note
+def nn_parameters(model):
+    
+    pp=0
+    for p in list(model.parameters()):
+        nn=1
+        for s in list(p.size()):
+            nn = nn*s
+        pp += nn
+    return pp
 
-    if not os.path.exists(directory):
-        os.makedirs(directory)
+
+def save_img(rep, name, note, out_path=''):
+
+    if out_path:
+        directory = out_path + note
+        if not os.path.exists(directory):
+            os.makedirs(directory)
+        
+        save_path = f"{directory}/{name}.png"
+    else:
+        save_path = f"{note}_{name}.png"
 
     *_, h, w = rep.shape
     rep = rep.reshape(h, w).cpu().data.numpy()
     plt.imshow(rep, aspect='auto', origin='lower')
     plt.colorbar()
-    plt.savefig(f"{directory}/{name}.png")
+    plt.savefig(save_path)
     plt.clf()
+
+def save_plot(x, name, note, out_path=''):
+
+    if out_path:
+        directory = out_path + note
+        if not os.path.exists(directory):
+            os.makedirs(directory)
+        
+        save_path = f"{directory}/{name}.png"
+    else:
+        save_path = f"{note}_{name}.png"
+
+    x = x.squeeze().cpu().data.numpy()
+    plt.plot(x/np.max(np.abs(x)))
+    plt.savefig(save_path)
+    plt.clf()
+
+def save_torch_wav(x, name, note, out_path=''):
+
+    if out_path:
+        directory = out_path + note
+        if not os.path.exists(directory):
+            os.makedirs(directory)
+        
+        save_path = f"{directory}/{name}.wav"
+    else:
+        save_path = f"{note}_{name}.wav"
+ 
+    x = x.squeeze().cpu().data.numpy()
+    wavfile.write(save_path, 16000, x/np.max(np.abs(x)))
+
+def save_checkpoints(model, ema, disc, output_dir, exp_name, note=''):
+
+    directory = f'{output_dir}/{exp_name}'
+    if not os.path.exists(directory):
+        os.makedirs(directory)
+
+    torch.save(model.state_dict(), f'{output_dir}/{exp_name}/model_{note}.amlt')
+    if ema is not None:
+        torch.save(ema.state_dict(), f'{output_dir}/{exp_name}/ema_{note}.amlt')
+    if disc is not None:
+        torch.save(disc.state_dict(), f'{output_dir}/{exp_name}/disc_{note}.amlt')
+
+
+def load_model(model, model_path, strict=True):
+
+    state_dict = torch.load(model_path)
+    model_dict = OrderedDict()
+    pattern = re.compile('module.')
+    for k,v in state_dict.items():
+        if re.search("module", k):
+            model_dict[re.sub(pattern, '', k)] = v
+        else:
+            model_dict = state_dict
+    model.load_state_dict(model_dict, strict=strict)
+
+    return model 
 
 def logging(step, tr_loss_dict, val_loss_dict, time, exp_name, vall):
 

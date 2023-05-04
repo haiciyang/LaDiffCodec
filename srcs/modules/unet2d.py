@@ -388,9 +388,8 @@ class UNet2D(Module):
         """
 
         # Get time-step embeddings
+
         t = self.time_emb(t)
-        # print(x.shape)
-        # fake()
         # Get image projection
         x = self.image_proj(x)
 

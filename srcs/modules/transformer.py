@@ -157,7 +157,6 @@ class DenseResBlock(nn.Module):
     x_out = self.layernorm(x)
     x_out = self.featurewiseAffine(x_out, scale, shift)
 
-    
     x_out = self.fc1(x_out)
 
     x_out = self.layernorm(x_out)
@@ -234,7 +233,8 @@ class TransformerDDPM(nn.Module):
             num_layers= 6,
             num_heads= 8,
             num_mlp_layers=2,
-            self_condition=False
+            self_condition=False,
+            qtz_condition=False,
             ):
 
     super().__init__()
@@ -244,17 +244,17 @@ class TransformerDDPM(nn.Module):
     self.rep_dims = rep_dims
 
     self.pos_encoding = TransformerPositionalEncoding(emb_dims)
-    self.first_layer = nn.Linear(rep_dims, emb_dims)
+
+    self.in_dims = rep_dims * (2 if self_condition or qtz_condition else 1)
+    self.first_layer = nn.Linear(self.in_dims, emb_dims)
   
     model = []
     for _ in range(num_layers):
       model += [TransformerEncoderBlock(emb_dims, mlp_dims, num_heads)]
-    
     model += [
       nn.LayerNorm(emb_dims),
       nn.Linear(emb_dims, mlp_dims)
     ]
-
     self.encoder = nn.Sequential(*model)
 
     self.condBlocks = nn.ModuleList([])
@@ -262,19 +262,27 @@ class TransformerDDPM(nn.Module):
     for _ in range(num_mlp_layers):
       self.condBlocks.append(NoiseCondResidual(mlp_dims, mlp_dims))
 
-    models = []
-    models+= [
+
+    self.output_layers = nn.Sequential(
       nn.LayerNorm(mlp_dims),
       nn.Linear(mlp_dims, rep_dims)
-    ]
-    self.output_layers = nn.Sequential(*models)
+    )
 
-  def forward(self, x, t, *args):
+  def forward(self, x, t, x_cond=None, *args):
 
     x = x.transpose(1, 2)
+    if x_cond is not None:
+      x_cond = x_cond.transpose(1, 2)
+      assert x_cond.shape == x.shape
+
+    if self.self_condition:
+      x_self_cond = default(x_cond, lambda: torch.zeros_like(x))
+      x = torch.cat((x_self_cond, x), dim = -1)
+    elif x_cond is not None:
+      x = torch.cat((x_cond, x), dim = -1)
 
     batch_size, seq_len, data_channels = x.shape
-    assert data_channels == self.rep_dims
+    assert data_channels == self.in_dims
 
     # Positinoal encoding
     temb = self.pos_encoding(torch.arange(seq_len)).unsqueeze(0).to(x.device)
@@ -284,11 +292,13 @@ class TransformerDDPM(nn.Module):
     # Transformer encoder
     x = self.encoder(x)
 
-    # Add noise condition
-    for net in self.condBlocks:
-      x = net(x, t)
+    # # Add noise condition
+    # for net in self.condBlocks:
+    #   x = net(x, t)
     
     # Generate reverse process output
+    x = torch.tanh(x) # Added 
+
     output = self.output_layers(x)
     output = output.transpose(1, 2)
 

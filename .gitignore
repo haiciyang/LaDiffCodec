@@ -5,3 +5,5 @@ logs/
 runs/
 eval_wavs/
 outputs/
+*.wav
+good_models/

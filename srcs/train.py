@@ -23,10 +23,11 @@ from torch.utils.data.distributed import DistributedSampler
 
 # from ema_pytorch import EMA
 
-from .utils import EMA, logging, save_img
+from .utils import EMA, logging, save_checkpoints, load_model
 from .losses import melspec_loss_fn
 from .model import DiffAudioRep
 from .dataset import EnCodec_data
+from .dataset_libri import Dataset_Libri
 from .msstftd import MultiScaleSTFTDiscriminator as MSDisc
 
 use_cuda = torch.cuda.is_available()
@@ -105,22 +106,20 @@ def run_model(model=None, ema=None, disc=None, data_loader=None, optimizer_G=Non
     for idx, batch in enumerate(data_loader):
 
         x = batch.unsqueeze(1).to(torch.float).to(device)
-        nums, x_hat, *reps, t = model(x) 
-        # save_torch_wav(x[0], 'x')
-        # save_torch_wav(x_hat[0], 'x_hat')
-        # save_plot(x[0], 'x')
-        # save_plot(x_hat[0], 'x_hat')
 
-        
+        nums, *rest = model(x) 
+        x_hat = rest[0]
+
+
         if model.training:
             if use_disc:
-                l_orig = 0
                 # if len(list(nums.values())) > 1:
                 l_orig = list(nums.values())[0]
                 l_g, l_feat = run_gen_loss(disc, x, x_hat)
 
                 l_t = torch.mean(torch.abs(x - x_hat))
                 l_f = melspec_loss_fn(x, x_hat, range(5,12))
+
                 nums['l_g'] = l_g
                 nums['l_feat'] = l_feat
                 nums['l_t'] = l_t
@@ -140,6 +139,7 @@ def run_model(model=None, ema=None, disc=None, data_loader=None, optimizer_G=Non
                     optimizer_D.step()                    
 
             else:
+                # pass
                 optimizer_G.zero_grad()
                 loss = list(nums.values())[0]
 
@@ -148,21 +148,24 @@ def run_model(model=None, ema=None, disc=None, data_loader=None, optimizer_G=Non
 
             if ema is not None:
                 ema.update(copy_back=False)
-            
 
-        if idx == 0:
-            tot_nums = nums
-        else:
-            for key, value in nums.items():
-                tot_nums[key] += value
+        for key, value in nums.items():
+            tot_nums[key] = tot_nums.get(key, 0) + value.detach().data.cpu()
+
+        # if idx == 0:
+        #     tot_nums = nums
+        # else:
+        #     for key, value in nums.items():
+        #         tot_nums[key] = tot_nums[key] + value.detach().data.cpu()
         
         if debug:
             break
 
     for key, value in tot_nums.items():
-        tot_nums[key] /= (idx + 1)
+        tot_nums[key] = tot_nums[key] / (idx + 1)
 
-    return tot_nums, x, x_hat, *reps, t
+    return tot_nums, rest
+    # return nums
 
 
 def get_args():
@@ -216,9 +219,10 @@ if __name__ == '__main__':
     parser.add_argument('--batch_size', type=int, default=5)  
     parser.add_argument('--exp_name', type=str, default='')
     parser.add_argument('--finetune_model', type=str, default='')
+    parser.add_argument('--finetune_model_ed', type=str, default='')
     parser.add_argument('--write_on_every', type=int, default=50)  
     parser.add_argument('--model_type', type=str, default='transformer')  
-
+    parser.add_argument('--freeze_ed', dest='freeze_ed', action='store_true')
 
     # Encoder and decoder
     parser.add_argument('--rep_dims', type=int, default=128)
@@ -229,13 +233,16 @@ if __name__ == '__main__':
     parser.add_argument('--lstm', type=int, default=2)
     parser.add_argument('--n_residual_layers', type=int, default=1)
     parser.add_argument('--enc_ratios', nargs='+', type=int)
+    parser.add_argument('--final_activation', type=str, default=None)
 
     # Diff model
     parser.add_argument('--diff_dims', type=int, default=128)
-    parser.add_argument('--self_cond', dest='self_cond', action='store_true')
+    parser.add_argument('--qtz_condition', dest='qtz_condition', action='store_true')
+    parser.add_argument('--self_condition', dest='self_condition', action='store_true')
     parser.add_argument('--seq_length', type=int, default=800)
     parser.add_argument('--run_diff', dest='run_diff', action='store_true')
     parser.add_argument('--run_vae', dest='run_vae', action='store_true')
+    parser.add_argument('--scaling', dest='scaling', action='store_true')
     
     # Dist
     parser.add_argument('--use_disc', dest='use_disc', action='store_true')
@@ -244,7 +251,8 @@ if __name__ == '__main__':
     
     inp_args = parser.parse_args() # Input arguments
     args = get_args() # Enviornmente arguments
-    # args = None
+
+    assert not (inp_args.self_condition and inp_args.qtz_condition) # self_cond and quantization can't be both true.
    
     run_ddp = False if len(args) == 1 else True
     # if not inp_args.debug:
@@ -270,8 +278,12 @@ if __name__ == '__main__':
         # synchronizes all the threads to reach this point before moving on
         dist.barrier()
 
-    train_dataset = EnCodec_data(inp_args.data_path, task = 'train', seq_len_p_sec = inp_args.seq_len_p_sec, sample_rate=inp_args.sample_rate, multi=False, n_spks = inp_args.n_spks)
-    valid_dataset = EnCodec_data(inp_args.data_path, task = 'valid', seq_len_p_sec = inp_args.seq_len_p_sec, sample_rate=inp_args.sample_rate, multi=False, n_spks = inp_args.n_spks)
+    # train_dataset = EnCodec_data(inp_args.data_path, task = 'train', seq_len_p_sec = inp_args.seq_len_p_sec, sample_rate=inp_args.sample_rate, multi=False, n_spks = inp_args.n_spks)
+    # valid_dataset = EnCodec_data(inp_args.data_path, task = 'valid', seq_len_p_sec = inp_args.seq_len_p_sec, sample_rate=inp_args.sample_rate, multi=False, n_spks = inp_args.n_spks)
+
+    train_dataset = Dataset_Libri(task = 'train', seq_len_p_sec = inp_args.seq_len_p_sec)
+    valid_dataset = Dataset_Libri(task = 'valid', seq_len_p_sec = inp_args.seq_len_p_sec)
+
 
     if run_ddp:
         train_sampler = DistributedSampler(dataset=train_dataset, shuffle=True) 
@@ -287,9 +299,18 @@ if __name__ == '__main__':
         gpu_rank = 0
     
 
-    model = DiffAudioRep(rep_dims=inp_args.rep_dims, emb_dims=inp_args.emb_dims, diff_dims=inp_args.diff_dims,  n_residual_layers=inp_args.n_residual_layers, n_filters=inp_args.n_filters, lstm=inp_args.lstm, quantization=inp_args.quantization, bandwidth=inp_args.bandwidth, sample_rate=inp_args.sample_rate, self_condition=inp_args.self_cond, seq_length=inp_args.seq_length, ratios=inp_args.enc_ratios, run_diff=inp_args.run_diff, run_vae=inp_args.run_vae, model_type=inp_args.model_type).to(device)
+    # model = DiffAudioRep(rep_dims=inp_args.rep_dims, emb_dims=inp_args.emb_dims, diff_dims=inp_args.diff_dims,  n_residual_layers=inp_args.n_residual_layers, n_filters=inp_args.n_filters, lstm=inp_args.lstm, quantization=inp_args.quantization, bandwidth=inp_args.bandwidth, sample_rate=inp_args.sample_rate, self_condition=inp_args.self_cond, seq_length=inp_args.seq_length, ratios=inp_args.enc_ratios, run_diff=inp_args.run_diff, run_vae=inp_args.run_vae, model_type=inp_args.model_type, scaling=inp_args.scaling).to(device)
 
-    if inp_args.run_diff:
+    model = DiffAudioRep(**vars(inp_args)).to(device)
+    if inp_args.finetune_model:
+        model = load_model(model, inp_args.finetune_model, strict=False)
+    
+    # model_ed = None
+    # if inp_args.finetune_model_ed:
+    #     model_ed = DiffAudioRep(**vars(inp_args)).to(device)
+    #     model_ed = load_model(model_ed, inp_args.finetune_model_ed, strict=False)
+
+    if inp_args.run_diff and inp_args.model_type != 'unet2d':
         ema = EMA(
             model.diffusion,
             beta = 0.9999,              # exponential moving average factor
@@ -299,29 +320,17 @@ if __name__ == '__main__':
     else:
         ema = None
 
-    if inp_args.finetune_model:
-
-        state_dict = torch.load(inp_args.finetune_model)
-        model_dict = OrderedDict()
-        pattern = re.compile('module.')
-        for k,v in state_dict.items():
-            if re.search("module", k):
-                model_dict[re.sub(pattern, '', k)] = v
-            else:
-                model_dict = state_dict
-        model.load_state_dict(model_dict, strict=False)
-
         # model.load_state_dict(torch.load(f'{inp_args.output_dir}/{inp_args.finetune_model}.amlt'))
 
     disc = MSDisc(filters=32).cuda(gpu_rank) if inp_args.use_disc else None
 
-    # if inp_args.run_diff:
-    #     if inp_args.model_type == 'unet2d':
-    #         optimizer_G = optim.Adam(model.diff_model.parameters(), lr=inp_args.lr)
-    #     else:
-    #         optimizer_G = optim.Adam(model.diffusion.parameters(), lr=inp_args.lr)
-    # else:
-    optimizer_G = optim.Adam(model.parameters(), lr=inp_args.lr)
+    if inp_args.run_diff and inp_args.freeze_ed:
+        if inp_args.model_type == 'unet2d':
+            optimizer_G = optim.Adam(model.diff_model.parameters(), lr=inp_args.lr)
+        else:
+            optimizer_G = optim.Adam(model.diffusion.parameters(), lr=inp_args.lr)
+    else:
+        optimizer_G = optim.Adam(model.parameters(), lr=inp_args.lr)
     optimizer_D = optim.Adam(disc.parameters(), lr=3e-4, betas=(0.5, 0.9)) if inp_args.use_disc else None
 
     if run_ddp:
@@ -331,27 +340,28 @@ if __name__ == '__main__':
 
     # run = Run.get_context()
     best_loss = torch.tensor(float('inf'))
-    write_on_every = 20 if not inp_args.debug else 1
-    eval_every_step = 100 
+    write_on_every = 1 if not inp_args.debug else 1
+    eval_every_step = 500 
 
     # ---- Train 2000 steps
-    for step in range(200000):
+    for step in range(50000):
         if step == 0:
             print('Starts training ...')
         if run_ddp:
             train_loader.sampler.set_epoch(step)
         model.train()
         start_time = time.time()
-        tr_losses, x, x_hat, *reps, t = run_model(model, ema, disc, train_loader, optimizer_G, optimizer_D, inp_args.use_disc, inp_args.disc_freq, inp_args.debug)
-        
-        if step % eval_every_step == 0:
-            x0 = reps[0]
-            self_cond = reps[1]
-            # sample = ema.ema_model.sample(batch_size=1)
+        tr_losses, rest = run_model(model, ema, disc, train_loader, optimizer_G, optimizer_D, inp_args.use_disc, 
+        inp_args.disc_freq, inp_args.debug)
+            
+        # if step % eval_every_step == 0:
+        #     x0 = reps[1]
+        #     self_cond = reps[2]
+        #     # sample = ema.ema_model.sample(batch_size=1)
 
-            for i in range(1):
-                save_img(x0[i], name=f'rep_{step}_{i}th', note=inp_args.exp_name, out_path='outputs/')
-                save_img(self_cond[i], name=f'selfCond_{step}_t{t[i]}_{i}th', note=inp_args.exp_name, out_path='outputs/')
+        #     for i in range(1):
+        #         save_img_on_tr(x0[i], name=f'rep_{step}_{i}th', note=inp_args.exp_name, out_path='outputs/')
+        #         save_img_on_tr(self_cond[i], name=f'selfCond_{step}_t{t[i]}_{i}th', note=inp_args.exp_name, out_path='outputs/')
 
         # save_torch_wav(x[0], 'x', 'tr_sample')
         # save_torch_wav(x_hat[0], 'x_hat', 'tr_sample')
@@ -362,7 +372,7 @@ if __name__ == '__main__':
         if step % write_on_every == 0:
             with torch.no_grad():
                 model.eval()
-                val_losses, *reps = run_model(model=model, data_loader=valid_loader, debug=inp_args.debug)
+                val_losses, *_ = run_model(model=model, data_loader=valid_loader, debug=inp_args.debug)
             end_time = time.time()
 
             # if gpu_rank == 0: # only save model and logs for the main process
@@ -373,14 +383,12 @@ if __name__ == '__main__':
                 # print(val_losses)
                 print([val.item() for val in val_losses.values()])
             else:
-
                 if vall < best_loss:
                     best_loss = vall
-                    if not inp_args.debug:
-                        torch.save(model.state_dict(), f'{inp_args.output_dir}/{inp_args.exp_name}.amlt')
-                        torch.save(ema.state_dict(), f'{inp_args.output_dir}/{inp_args.exp_name}_ema.amlt')
-                        if inp_args.use_disc:
-                            torch.save(disc.state_dict(), f'{inp_args.output_dir}/{inp_args.exp_name}_disc.amlt')
+                    save_checkpoints(model, ema, disc, inp_args.output_dir, inp_args.exp_name, note='best')
+                    if step % 1000 == 0 and step > 0:
+                        save_checkpoints(model, ema, disc, inp_args.output_dir, inp_args.exp_name, note=str(step))
+
 
                 # for key, value in tr_losses.items():
                 #     # run.log(key, value.item())

@@ -99,7 +99,6 @@ class PreNorm(nn.Module):
         return self.fn(x)
 
 # sinusoidal positional embeds
-
 class SinusoidalPosEmb(nn.Module):
     def __init__(self, dim):
         super().__init__()
@@ -247,16 +246,18 @@ class Unet1D(nn.Module):
         learned_variance = False,
         learned_sinusoidal_cond = False,
         random_fourier_features = False,
-        learned_sinusoidal_dim = 16
+        learned_sinusoidal_dim = 16,
+        qtz_condition=False
     ):
         super().__init__()
 
         # determine dimensions
         self.channels = inp_channels
         self.self_condition = self_condition
-        input_channels = inp_channels * (2 if self_condition else 1)
+        input_channels = inp_channels * (2 if self_condition or qtz_condition else 1)
 
         init_dim = default(init_dim, dim)
+
         self.init_conv = nn.Conv1d(input_channels, init_dim, 7, padding = 3)
 
         dims = [init_dim, *map(lambda m: dim * m, dim_mults)]
@@ -328,7 +329,9 @@ class Unet1D(nn.Module):
             x_self_cond = default(x_cond, lambda: torch.zeros_like(x))
             x = torch.cat((x_self_cond, x), dim = 1)
         elif exists(x_cond):
+            
             x = torch.cat((x_cond, x), dim = 1)
+
 
         x = self.init_conv(x)
         r = x.clone()

@@ -90,8 +90,9 @@ class SEANetEncoder(nn.Module):
     """
     def __init__(self, channels: int = 1, dimension: int = 128, n_filters: int = 32, n_residual_layers: int = 1,
                  ratios: tp.List[int] = [8, 5, 4, 2], activation: str = 'ELU', activation_params: dict = {'alpha': 1.0},
-                 norm: str = 'weight_norm', norm_params: tp.Dict[str, tp.Any] = {}, kernel_size: int = 7,
-                 last_kernel_size: int = 7, residual_kernel_size: int = 3, dilation_base: int = 2, causal: bool = False,
+                 norm: str = 'weight_norm', norm_params: tp.Dict[str, tp.Any] = {}, final_activation: tp.Optional[str] = None, 
+                 final_activation_params: tp.Optional[dict] = None, kernel_size: int = 7, last_kernel_size: int = 7, 
+                 residual_kernel_size: int = 3, dilation_base: int = 2, causal: bool = False,
                  pad_mode: str = 'reflect', true_skip: bool = False, compress: int = 2, lstm: int = 2):
         super().__init__()
         self.channels = channels
@@ -137,6 +138,15 @@ class SEANetEncoder(nn.Module):
             SConv1d(mult * n_filters, dimension, last_kernel_size, norm=norm, norm_kwargs=norm_params,
                     causal=causal, pad_mode=pad_mode)
         ]
+
+        # Add optional final activation to encoder (eg. tanh)
+        # - was not included in the original model.
+        if final_activation is not None:
+            final_act = getattr(nn, final_activation)
+            final_activation_params = final_activation_params or {}
+            model += [
+                final_act(**final_activation_params)
+            ]
 
         self.model = nn.Sequential(*model)
 

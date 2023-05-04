@@ -85,14 +85,17 @@ class EnCodec_data(Dataset):
 		if self.seq_len_p_sec < 5:
 
 			seq_length = int(self.seq_len_p_sec * 16000)
-			while 1:
-				loc = torch.randint(len(seg)-seq_length, (1,))
-			# loc = 0 # ****
-				selected_seg = seg[loc: loc + seq_length]
-				if not np.isclose(np.std(selected_seg), 0): # exclude empty sampels
-					seg = selected_seg
-					break
-					# print('Contains empty segments')
+			if self.task == 'valid':
+				loc = 0
+				seg = seg[loc: loc + seq_length]
+			else:
+				while 1:
+					loc = torch.randint(len(seg)-seq_length, (1,))
+					selected_seg = seg[loc: loc + seq_length]
+					if not np.isclose(np.std(selected_seg), 0): # exclude empty sampels
+						seg = selected_seg
+						break
+						# print('Contains empty segments')
 
 		seg = seg / 32768
 		

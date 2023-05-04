@@ -199,6 +199,17 @@ class DenoiseDiffusion:
         # $\sigma^2 = \beta$
         self.sigma2 = self.beta
 
+        self.sqrt_recip_alphas_cumprod = torch.sqrt(1. / self.alpha_bar)
+        self.sqrt_recipm1_alphas_cumprod = torch.sqrt(1. / self.alpha_bar - 1)
+
+
+    def predict_start(self, x_t, t, eps_hat):
+
+        return (
+            gather(self.sqrt_recip_alphas_cumprod, t) * x_t -
+            gather(self.sqrt_recipm1_alphas_cumprod, t) * eps_hat
+        )
+
     def q_xt_x0(self, x0: torch.Tensor, t: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
         """
         #### Get $q(x_t|x_0)$ distribution
@@ -224,12 +235,13 @@ class DenoiseDiffusion:
         """
 
         # $\epsilon \sim \mathcal{N}(\mathbf{0}, \mathbf{I})$
-        if eps is None:
-            eps = torch.randn_like(x0)
 
+        if eps is None:
+            eps = torch.randn_like()
         # get $q(x_t|x_0)$
         mean, var = self.q_xt_x0(x0, t)
         # Sample from $q(x_t|x_0)$
+        
         return mean + (var ** 0.5) * eps
 
     def p_sample(self, xt: torch.Tensor, t: torch.Tensor):
@@ -264,7 +276,7 @@ class DenoiseDiffusion:
         # Sample
         return mean + (var ** .5) * eps
 
-    def loss(self, x0: torch.Tensor, noise: Optional[torch.Tensor] = None):
+    def loss(self, x0: torch.Tensor, noise: Optional[torch.Tensor] = None, t=None):
         """
         #### Simplified Loss
 
@@ -274,8 +286,10 @@ class DenoiseDiffusion:
         """
         # Get batch size
         batch_size = x0.shape[0]
+
         # Get random $t$ for each sample in the batch
-        t = torch.randint(0, self.n_steps, (batch_size,), device=x0.device, dtype=torch.long)
+        if t is None:
+          t = torch.randint(0, self.n_steps, (batch_size,), device=x0.device, dtype=torch.long)
 
         # $\epsilon \sim \mathcal{N}(\mathbf{0}, \mathbf{I})$
         if noise is None:
@@ -284,8 +298,9 @@ class DenoiseDiffusion:
         # Sample $x_t$ for $q(x_t|x_0)$
         xt = self.q_sample(x0, t, eps=noise)
 
-        # Get $\textcolor{lightgreen}{\epsilon_\theta}(\sqrt{\bar\alpha_t} x_0 + \sqrt{1-\bar\alpha_t}\epsilon, t)$
         eps_theta = self.eps_model(xt, t)
 
+        predicted_x0 = self.predict_start(xt, t, eps_theta)
+
         # MSE loss
-        return F.mse_loss(noise, eps_theta)
+        return F.mse_loss(noise, eps_theta), predicted_x0, noise, eps_theta, xt, t
