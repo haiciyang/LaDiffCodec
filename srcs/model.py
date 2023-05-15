@@ -167,7 +167,7 @@ class DiffAudioRep(nn.Module):
                     diff_loss, predicted_x_start, *other_reps_from_diff = self.diffusion(x_rep.detach(), t=t)
 
                 in_dec = predicted_x_start * scale if self.scaling else predicted_x_start
-                x_hat = decoder(in_dec)
+                x_hat = self.decoder(in_dec)
 
         else:
             # in_dec = x_rep_qtz if self.quantization else x_rep

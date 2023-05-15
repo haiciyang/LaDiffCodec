@@ -45,6 +45,8 @@ CUDA_VISIBLE_DEVICES=5, python -m srcs.train --enc_ratios 8 5 4 2 --seq_len_p_se
 
 CUDA_VISIBLE_DEVICES=1, python -m srcs.train --seq_len_p_sec 1.6 --rep_dims 128 --diff_dims 256 --enc_ratios 8 5 4 2 --n_residual_layers 1 --n_filters 32 --lstm 2 --finetune_model '/home/hy17/Projects/DiffCodec/saved_models/0418diff_encodec_noCond/model_best.amlt' --final_activation Tanh --exp_name 0422diff_noCond_2ft --batch_size 20 --run_diff --model_type unet --seq_length 80 --debug
 
+CUDA_VISIBLE_DEVICES=0, python train.py --n_residual_layers 1 --n_filters 128 --exp_name 0513_sigmoid_fz_qtz_12 --finetune_model '/home/hy17/Projects/MSC/results/0502_128_sisdr_act_sigmoid.amlt' --mask_act sigmoid --batch_size 5 --n_spks 500 --enc_ratios 8 5 2 --lr 0.0001 --kernel_size 7 --quantization --bandwidth 12 --freeze_enc --debug
+
 
 
 
@@ -63,5 +65,5 @@ CUDA_VISIBLE_DEVICES=0, python -m srcs.sample --enc_ratios 8 5 4 2 --seq_len_p_s
 CUDA_VISIBLE_DEVICES=0, python -m srcs.sample_unet2d --enc_ratios 8 5 4 2 --seq_len_p_sec 1.6 --n_residual_layers 1 --n_filters 32 --lstm 2 --model_type unet2d --final_activation Tanh --run_diff --diff_dims 64 --quantization --bandwidth 3 --model_path '/home/hy17/Projects/DiffCodec/saved_models/0414diff_encodec_tanh_unet2d_qtzCond.amlt'
 
 
-CUDA_VISIBLE_DEVICES=0, python -m srcs.sample --enc_ratios 8 5 4 2 --seq_len_p_sec 3.2 --n_residual_layers 1 --n_filters 32 --lstm 2 --final_activation Tanh  --model_path '/home/hy17/Projects/DiffCodec/saved_models/0421_encodec_noQtz/model_best.amlt'
+CUDA_VISIBLE_DEVICES=7, python -m srcs.sample --enc_ratios 8 5 4 2 --seq_len_p_sec 3.2 --n_residual_layers 1 --n_filters 32 --lstm 2 --final_activation Tanh --model_path '/home/hy17/Projects/DiffCodec/saved_models/0511_encodec_tanh_libri_noqtz/model_best.amlt'
 

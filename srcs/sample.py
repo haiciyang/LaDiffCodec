@@ -105,7 +105,7 @@ if __name__ == '__main__':
     # model_qtz.eval()
     
     # note = inp_args.model_path.split('/')[-1][:-5]
-    note = '8_ae_tanh'
+    note = '0511_encodec_tanh_libri_noqtz'
 
     # Conditioned
     with torch.no_grad():
@@ -166,7 +166,7 @@ if __name__ == '__main__':
 
 
             out_dir = 'outputs/'
-            px = '12'
+            px = ''
             # for i in range(1):
             # save_img(x0, name='rep', note=note, out_path = out_dir)
             # save_img(predicted_x0, name=f'pred_t{t[0]}', note=note, out_path = out_dir)
