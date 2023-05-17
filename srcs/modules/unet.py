@@ -329,9 +329,10 @@ class Unet1D(nn.Module):
             x_self_cond = default(x_cond, lambda: torch.zeros_like(x))
             x = torch.cat((x_self_cond, x), dim = 1)
         elif exists(x_cond):
-            
+            if x_cond.shape[-1] < x.shape[-1]:
+                ratio = x.shape[-1] // x_cond.shape[-1]
+                x_cond = torch.repeat_interleave(x_cond, ratio, dim=-1)
             x = torch.cat((x_cond, x), dim = 1)
-
 
         x = self.init_conv(x)
         r = x.clone()

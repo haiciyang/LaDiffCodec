@@ -99,13 +99,13 @@ if __name__ == '__main__':
         ema.ema_model.eval()
     
 
-    model = load_model(model, inp_args.model_path, strict=False)
+    load_model(model, inp_args.model_path, strict=True)
     # model_qtz= load_model(model_qtz, inp_args.qtzer_path, strict=False)
     model.eval()
     # model_qtz.eval()
     
     # note = inp_args.model_path.split('/')[-1][:-5]
-    note = '0511_encodec_tanh_libri_noqtz'
+    note = '0516_encodec_libri_3kb'
 
     # Conditioned
     with torch.no_grad():

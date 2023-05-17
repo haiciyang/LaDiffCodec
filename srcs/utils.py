@@ -106,7 +106,7 @@ def load_model(model, model_path, strict=True):
             model_dict = state_dict
     model.load_state_dict(model_dict, strict=strict)
 
-    return model 
+    # return model 
 
 def logging(step, tr_loss_dict, val_loss_dict, time, exp_name, vall):
 

@@ -116,7 +116,7 @@ class DiffAudioRep(nn.Module):
         return rep, prior_loss
 
 
-    def forward(self, x, t=None):  
+    def forward(self, x, t=None, cond=None):  
         
         # ==== Run Latent Diffusion =====
 
@@ -129,6 +129,8 @@ class DiffAudioRep(nn.Module):
         #     decoder = model_ed.decoder
 
         x_rep = self.encoder(x)
+
+
 
         x_rep_qtz = None
         if self.quantization:
@@ -160,7 +162,9 @@ class DiffAudioRep(nn.Module):
                 x_hat = decoder(in_dec)
             else:
                 x_rep_scaled = reshape_to_3dim(x_rep)
-                if self.qtz_condition:
+                if cond is not None:
+                    diff_loss, predicted_x_start, *other_reps_from_diff = self.diffusion(x_rep, x_rep_qtz, t=t) 
+                elif self.qtz_condition:
                     diff_loss, predicted_x_start, *other_reps_from_diff = self.diffusion(x_rep, x_rep_qtz, t=t) 
                     # condition on training or only on sampling
                 else:
@@ -202,6 +206,16 @@ class DiffAudioRep(nn.Module):
             else:
                 # return {'neg_sdr': neg_loss}, x_hat
                 return {'qtz_loss': qtz_loss, 'neg_sdr': neg_loss}, x_hat
+
+    def get_cond(self, x):
+
+        x_rep = self.encoder(x)
+        if self.quantization:
+            quantizedResults = self.quantizer(x_rep, sample_rate=self.frame_rate, bandwidth=self.bandwidth)
+            x_rep = quantizedResults.quantized
+        
+        return x_rep
+
 
 
 if __name__ == '__main__':

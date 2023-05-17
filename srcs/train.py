@@ -100,14 +100,17 @@ def run_disc_loss(disc, s, s_hat):
     return l_d
 
 
-def run_model(model=None, ema=None, disc=None, data_loader=None, optimizer_G=None, optimizer_D=None, use_disc=None, disc_freq=None, debug=None):
+def run_model(model=None, model_for_cond=None, ema=None, disc=None, data_loader=None, optimizer_G=None, optimizer_D=None, use_disc=None, disc_freq=None, debug=None):
     
     tot_nums = dict()
     for idx, batch in enumerate(data_loader):
 
         x = batch.unsqueeze(1).to(torch.float).to(device)
 
-        nums, *rest = model(x) 
+        cond = None
+        if model_for_cond is not None:
+            cond = model_for_cond.get_cond(x)
+        nums, *rest = model(x, cond=cond) 
         x_hat = rest[0]
 
 
@@ -219,7 +222,7 @@ if __name__ == '__main__':
     parser.add_argument('--batch_size', type=int, default=5)  
     parser.add_argument('--exp_name', type=str, default='')
     parser.add_argument('--finetune_model', type=str, default='')
-    parser.add_argument('--finetune_model_ed', type=str, default='')
+    parser.add_argument('--model_for_cond', type=str, default='')
     parser.add_argument('--write_on_every', type=int, default=50)  
     parser.add_argument('--model_type', type=str, default='transformer')  
     parser.add_argument('--freeze_ed', dest='freeze_ed', action='store_true')
@@ -243,6 +246,11 @@ if __name__ == '__main__':
     parser.add_argument('--run_diff', dest='run_diff', action='store_true')
     parser.add_argument('--run_vae', dest='run_vae', action='store_true')
     parser.add_argument('--scaling', dest='scaling', action='store_true')
+
+    # Cond model
+    parser.add_argument('--cond_enc_ratios', nargs='+', type=int)
+    parser.add_argument('--cond_quantization', dest='cond_quantization', action='store_true')
+    parser.add_argument('--cond_bandwidth', type=float, default=3.0)
     
     # Dist
     parser.add_argument('--use_disc', dest='use_disc', action='store_true')
@@ -302,13 +310,21 @@ if __name__ == '__main__':
     # model = DiffAudioRep(rep_dims=inp_args.rep_dims, emb_dims=inp_args.emb_dims, diff_dims=inp_args.diff_dims,  n_residual_layers=inp_args.n_residual_layers, n_filters=inp_args.n_filters, lstm=inp_args.lstm, quantization=inp_args.quantization, bandwidth=inp_args.bandwidth, sample_rate=inp_args.sample_rate, self_condition=inp_args.self_cond, seq_length=inp_args.seq_length, ratios=inp_args.enc_ratios, run_diff=inp_args.run_diff, run_vae=inp_args.run_vae, model_type=inp_args.model_type, scaling=inp_args.scaling).to(device)
 
     model = DiffAudioRep(**vars(inp_args)).to(device)
+    disc = MSDisc(filters=32).cuda(gpu_rank) if inp_args.use_disc else None
+
     if inp_args.finetune_model:
-        model = load_model(model, inp_args.finetune_model, strict=False)
-    
-    # model_ed = None
-    # if inp_args.finetune_model_ed:
-    #     model_ed = DiffAudioRep(**vars(inp_args)).to(device)
-    #     model_ed = load_model(model_ed, inp_args.finetune_model_ed, strict=False)
+        load_model(model, inp_args.finetune_model + '/model_best.amlt', strict=False)
+        if inp_args.use_disc:
+            load_model(disc, inp_args.finetune_model + '/disc_best.amlt')
+
+    model_for_cond = None
+    if inp_args.model_for_cond:
+
+        model_for_cond = DiffAudioRep(rep_dims=inp_args.rep_dims, emb_dims=inp_args.emb_dims, n_residual_layers=inp_args.n_residual_layers, n_filters=inp_args.n_filters, lstm=inp_args.lstm, quantization=inp_args.cond_quantization, bandwidth=inp_args.cond_bandwidth, ratios=inp_args.cond_enc_ratios, final_activation=inp_args.final_activation).to(device) # An autoencoder
+
+        load_model(model_for_cond, inp_args.model_for_cond + '/model_best.amlt')
+        model_for_cond.eval()
+
 
     if inp_args.run_diff and inp_args.model_type != 'unet2d':
         ema = EMA(
@@ -321,8 +337,6 @@ if __name__ == '__main__':
         ema = None
 
         # model.load_state_dict(torch.load(f'{inp_args.output_dir}/{inp_args.finetune_model}.amlt'))
-
-    disc = MSDisc(filters=32).cuda(gpu_rank) if inp_args.use_disc else None
 
     if inp_args.run_diff and inp_args.freeze_ed:
         if inp_args.model_type == 'unet2d':
@@ -351,7 +365,7 @@ if __name__ == '__main__':
             train_loader.sampler.set_epoch(step)
         model.train()
         start_time = time.time()
-        tr_losses, rest = run_model(model, ema, disc, train_loader, optimizer_G, optimizer_D, inp_args.use_disc, 
+        tr_losses, rest = run_model(model, model_for_cond, ema, disc, train_loader, optimizer_G, optimizer_D, inp_args.use_disc, 
         inp_args.disc_freq, inp_args.debug)
             
         # if step % eval_every_step == 0:
@@ -372,7 +386,7 @@ if __name__ == '__main__':
         if step % write_on_every == 0:
             with torch.no_grad():
                 model.eval()
-                val_losses, *_ = run_model(model=model, data_loader=valid_loader, debug=inp_args.debug)
+                val_losses, *_ = run_model(model=model, model_for_cond=model_for_cond, data_loader=valid_loader, debug=inp_args.debug)
             end_time = time.time()
 
             # if gpu_rank == 0: # only save model and logs for the main process
