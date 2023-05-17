@@ -13,7 +13,7 @@ from torch.utils.data import Dataset, DataLoader
 class Dataset_Libri(Dataset):
     
     # @ex.capture
-    def __init__(self, task = 'train', seq_len_p_sec=5): # 28539
+    def __init__(self, task = 'train', seq_len_p_sec=5, data_folder_path='/data/hy17/librispeech/librispeech'): # 28539
         
         '''
         # training - 28539
@@ -29,9 +29,9 @@ class Dataset_Libri(Dataset):
         self.seq_len_p_sec = seq_len_p_sec
         
         if self.task == 'train':
-            path = '/data/hy17/librispeech/librispeech/train-clean-100/*/*/*.wav'
+            path = data_folder_path + '/train-clean-100/*/*/*.wav'
         elif self.task == 'valid' or self.task == 'eval':
-            path = '/data/hy17/librispeech/librispeech/dev-clean/*/*/*.wav'
+            path = data_folder_path + '/dev-clean/*/*/*.wav'
         
         self.files = glob.glob(path)[:10000]
 

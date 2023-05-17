@@ -1,3 +1,6 @@
+import sys
+sys.path.insert(0, '/N/u/hy17/BigRed200/venvs/env_pt12/lib/python3.8/site-packages')
+
 import os
 import re
 import glob
@@ -211,7 +214,8 @@ if __name__ == '__main__':
     
     # Data related
     parser.add_argument("--output_dir", type=str, default='saved_models')
-    parser.add_argument("--data_path", type=str, default='/data/hy17/dns_pth/*')
+    # parser.add_argument("--data_folder_path", type=str, default='/data/hy17/dns_pth/*') # for the dsn data
+    parser.add_argument("--data_folder_path", type=str, default='/data/hy17/librispeech/librispeech')
     parser.add_argument("--n_spks", type=int, default=500)
     parser.add_argument('--seq_len_p_sec', type=float, default=1.) 
     parser.add_argument('--sample_rate', type=int, default=16000)
@@ -258,11 +262,11 @@ if __name__ == '__main__':
 
     
     inp_args = parser.parse_args() # Input arguments
-    args = get_args() # Enviornmente arguments
+    # args = get_args() # Enviornmente arguments
 
     assert not (inp_args.self_condition and inp_args.qtz_condition) # self_cond and quantization can't be both true.
    
-    run_ddp = False if len(args) == 1 else True
+    run_ddp = False #if len(args) == 1 else True
     # if not inp_args.debug:
     #     writer = SummaryWriter(f'../runs/{inp_args.exp_name}')
 
@@ -289,8 +293,8 @@ if __name__ == '__main__':
     # train_dataset = EnCodec_data(inp_args.data_path, task = 'train', seq_len_p_sec = inp_args.seq_len_p_sec, sample_rate=inp_args.sample_rate, multi=False, n_spks = inp_args.n_spks)
     # valid_dataset = EnCodec_data(inp_args.data_path, task = 'valid', seq_len_p_sec = inp_args.seq_len_p_sec, sample_rate=inp_args.sample_rate, multi=False, n_spks = inp_args.n_spks)
 
-    train_dataset = Dataset_Libri(task = 'train', seq_len_p_sec = inp_args.seq_len_p_sec)
-    valid_dataset = Dataset_Libri(task = 'valid', seq_len_p_sec = inp_args.seq_len_p_sec)
+    train_dataset = Dataset_Libri(task = 'train', seq_len_p_sec = inp_args.seq_len_p_sec, data_folder_path=inp_args.data_folder_path)
+    valid_dataset = Dataset_Libri(task = 'valid', seq_len_p_sec = inp_args.seq_len_p_sec, data_folder_path=inp_args.data_folder_path)
 
 
     if run_ddp:
