@@ -26,7 +26,7 @@ from torch.utils.data.distributed import DistributedSampler
 
 # from ema_pytorch import EMA
 
-from .utils import EMA, logging, save_checkpoints, load_model
+from .utils import EMA, logging, save_checkpoints, load_model, log_params
 from .losses import melspec_loss_fn
 from .model import DiffAudioRep
 from .dataset import EnCodec_data
@@ -249,7 +249,9 @@ if __name__ == '__main__':
     parser.add_argument('--seq_length', type=int, default=800)
     parser.add_argument('--run_diff', dest='run_diff', action='store_true')
     parser.add_argument('--run_vae', dest='run_vae', action='store_true')
-    parser.add_argument('--scaling', dest='scaling', action='store_true')
+    parser.add_argument('--scaling_frame', dest='scaling_frame', action='store_true')
+    parser.add_argument('--scaling_feature', dest='scaling_feature', action='store_true')
+    
 
     # Cond model
     parser.add_argument('--cond_enc_ratios', nargs='+', type=int)
@@ -265,7 +267,10 @@ if __name__ == '__main__':
     # args = get_args() # Enviornmente arguments
 
     assert not (inp_args.self_condition and inp_args.qtz_condition) # self_cond and quantization can't be both true.
-   
+    
+    if not inp_args.debug:
+        log_params(vars(inp_args), inp_args.exp_name)
+    
     run_ddp = False #if len(args) == 1 else True
     # if not inp_args.debug:
     #     writer = SummaryWriter(f'../runs/{inp_args.exp_name}')
@@ -317,7 +322,8 @@ if __name__ == '__main__':
     disc = MSDisc(filters=32).cuda(gpu_rank) if inp_args.use_disc else None
 
     if inp_args.finetune_model:
-        load_model(model, inp_args.finetune_model + '/model_best.amlt', strict=False)
+        # load_model(model, inp_args.finetune_model + '/model_best.amlt', strict=False)
+        load_model(model, inp_args.finetune_model + '.amlt', strict=False)
         if inp_args.use_disc:
             load_model(disc, inp_args.finetune_model + '/disc_best.amlt')
 
@@ -358,7 +364,7 @@ if __name__ == '__main__':
 
     # run = Run.get_context()
     best_loss = torch.tensor(float('inf'))
-    write_on_every = 1 if not inp_args.debug else 1
+    write_on_every = 5 if not inp_args.debug else 1
     eval_every_step = 500 
 
     # ---- Train 2000 steps
@@ -401,6 +407,7 @@ if __name__ == '__main__':
                 # print(val_losses)
                 print([val.item() for val in val_losses.values()])
             else:
+                print(f'Finished training epoch {step}')
                 if vall < best_loss:
                     best_loss = vall
                     save_checkpoints(model, ema, disc, inp_args.output_dir, inp_args.exp_name, note='best')

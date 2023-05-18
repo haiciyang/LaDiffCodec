@@ -122,6 +122,17 @@ def logging(step, tr_loss_dict, val_loss_dict, time, exp_name, vall):
         file.flush()
 
 
+def log_params(params_dict, exp_name):
+
+    result_path = 'logs/'+ exp_name +'.txt'
+
+    with open(result_path, 'a+') as file:
+        for key, value in params_dict.items():
+            print(key, value)
+            file.write('%s %s\n'%(key, value))
+            file.flush()
+
+
 def checkpoint(debugging, step, batch_id, duration, model_label, state_dict, train_loss, valid_loss, min_loss):
 
     result_path = '../results/'+ model_label +'.txt'

@@ -32,7 +32,7 @@ def reshape_to_3dim(x):
 
 class DiffAudioRep(nn.Module):
 
-    def __init__(self, rep_dims=128, emb_dims=128, diff_dims=128, norm: str='weight_norm', causal: bool=True, dilation_base=2, n_residual_layers=1, n_filters=32, lstm=0, quantization=False, bandwidth=3, sample_rate=16000, qtz_condition=False, self_condition=False, seq_length=320, enc_ratios=[8, 5, 4, 2], run_diff=False, run_vae=False, model_type='', scaling=False, freeze_ed=False, final_activation=None, sampling_timesteps=None, **kwargs):
+    def __init__(self, rep_dims=128, emb_dims=128, diff_dims=128, norm: str='weight_norm', causal: bool=True, dilation_base=2, n_residual_layers=1, n_filters=32, lstm=0, quantization=False, bandwidth=3, sample_rate=16000, qtz_condition=False, self_condition=False, seq_length=320, enc_ratios=[8, 5, 4, 2], run_diff=False, run_vae=False, model_type='', scaling_frame=False, scaling_feature=False, freeze_ed=False, final_activation=None, sampling_timesteps=None, **kwargs):
 
         super(). __init__()
 
@@ -44,7 +44,11 @@ class DiffAudioRep(nn.Module):
         self.run_diff = run_diff
         self.run_vae = run_vae
         self.model_type = model_type
-        self.scaling = scaling
+        self.scaling_frame = scaling_frame
+        self.scaling_feature = scaling_feature
+
+
+
 
         self.encoder = SEANetEncoder(channels=1, ratios=enc_ratios,\
             dimension=rep_dims, norm=norm, causal=causal, dilation_base=dilation_base, n_residual_layers=n_residual_layers, n_filters=n_filters, lstm=lstm, kernel_size=7, last_kernel_size=7, final_activation=final_activation)
@@ -130,8 +134,6 @@ class DiffAudioRep(nn.Module):
 
         x_rep = self.encoder(x)
 
-
-
         x_rep_qtz = None
         if self.quantization:
             quantizedResults = self.quantizer(x_rep, sample_rate=self.frame_rate, bandwidth=self.bandwidth)
@@ -144,33 +146,35 @@ class DiffAudioRep(nn.Module):
         # --- Diffusion Loss --- 
 
         if self.run_diff:
+
             B, C, L = x_rep.shape
-            if self.scaling:
+            scale = None
+            if self.scaling_frame:
                 # ---- Scaling for every frames -----
                 scale, _ = torch.max(torch.abs(x_rep), 1, keepdim=True)
-                
-                # --- Scaling for the features --- 
-                # scale, _ = torch.max(torch.abs(x_rep.reshape(B, C * L)), 1, keepdim=True)
-                # scale = scale.unsqueeze(-1)
-
                 x_rep = x_rep / (scale + 1e-20)
-
+            if self.scaling_feature:
+                # --- Scaling for the feature map --- 
+                scale, _ = torch.max(torch.abs(x_rep.reshape(B, C * L)), 1, keepdim=True)
+                scale = scale.unsqueeze(-1)
+                x_rep = x_rep / (scale + 1e-20)
+                
             if self.model_type == 'unet2d':
                 x_rep = reshape_to_4dim(x_rep)
                 diff_loss, predicted_x_start, *other_reps_from_diff = self.diffusion.loss(x_rep, t=t) # condition on training or only on sampling
-                in_dec = predicted_x_start.squeeze(1) * scale if self.scaling else predicted_x_start.squeeze(1)
+                in_dec = predicted_x_start.squeeze(1) * scale if scale is not None else predicted_x_start.squeeze(1)
                 x_hat = decoder(in_dec)
             else:
-                x_rep_scaled = reshape_to_3dim(x_rep)
-                if cond is not None:
-                    diff_loss, predicted_x_start, *other_reps_from_diff = self.diffusion(x_rep, x_rep_qtz, t=t) 
+                x_rep = reshape_to_3dim(x_rep)
+                if cond is not None: # Conditions from different model
+                    diff_loss, predicted_x_start, *other_reps_from_diff = self.diffusion(x_rep, cond, t=t) 
                 elif self.qtz_condition:
                     diff_loss, predicted_x_start, *other_reps_from_diff = self.diffusion(x_rep, x_rep_qtz, t=t) 
                     # condition on training or only on sampling
                 else:
                     diff_loss, predicted_x_start, *other_reps_from_diff = self.diffusion(x_rep.detach(), t=t)
 
-                in_dec = predicted_x_start * scale if self.scaling else predicted_x_start
+                in_dec = predicted_x_start * scale if scale is not None else predicted_x_start
                 x_hat = self.decoder(in_dec)
 
         else:

@@ -6,4 +6,8 @@ runs/
 eval_wavs/
 outputs/
 *.wav
+sbatch_printout/
+submit_job.script
 good_models/
+*.pyc
+srcs/__pycache__/

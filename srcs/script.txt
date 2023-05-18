@@ -43,7 +43,7 @@ CUDA_VISIBLE_DEVICES=1, python -m srcs.train --seq_len_p_sec 1.6 --rep_dims 128 
 
 CUDA_VISIBLE_DEVICES=5, python -m srcs.train --enc_ratios 8 5 4 2 --seq_len_p_sec 5 --n_residual_layers 1 --n_filters 32 --lstm 2 --finetune_model '/home/hy17/Projects/DiffCodec/saved_models/encodec_tanh_2.amlt' --quantization --bandwidth 24 --use_disc --disc_freq 5 --final_activation Tanh --exp_name 0503_encodec_tanh_libri --batch_size 20 --lr 0.00005
 
-CUDA_VISIBLE_DEVICES=2, python -m srcs.train --seq_len_p_sec 0.4 --rep_dims 128 --diff_dims 256 --enc_ratios 8 --cond_enc_ratios 8 5 4 2 --n_residual_layers 1 --n_filters 32 --lstm 2 --finetune_model '/home/hy17/Projects/DiffCodec/saved_models/8_ae_tanh' --model_for_cond '/home/hy17/Projects/DiffCodec/saved_models/0516_encodec_libri_3kb' --final_activation Tanh --exp_name 0516diff_8with_8542 --batch_size 20 --run_diff --model_type unet --seq_length 800 --cond_quantization --cond_bandwidth 3 --debug
+CUDA_VISIBLE_DEVICES=2, python -m srcs.train --seq_len_p_sec 0.8 --rep_dims 128 --diff_dims 256 --enc_ratios 8 --cond_enc_ratios 8 5 4 2 --n_residual_layers 1 --n_filters 32 --lstm 2 --finetune_model '/home/hy17/Projects/DiffCodec/saved_models/8_ae_tanh' --model_for_cond '/home/hy17/Projects/DiffCodec/saved_models/0516_encodec_libri_3kb' --final_activation Tanh --exp_name 0517diff_8with_8542_longer --batch_size 20 --run_diff --model_type unet --seq_length 1600 --cond_quantization --cond_bandwidth 3 --debug
 
 
 
@@ -65,3 +65,4 @@ CUDA_VISIBLE_DEVICES=0, python -m srcs.sample_unet2d --enc_ratios 8 5 4 2 --seq_
 
 CUDA_VISIBLE_DEVICES=7, python -m srcs.sample --enc_ratios 8 5 4 2 --seq_len_p_sec 3.2 --n_residual_layers 1 --n_filters 32 --lstm 2 --final_activation Tanh --quantization --bandwidth 3 --model_path '/home/hy17/Projects/DiffCodec/saved_models/0516_encodec_libri_3kb/model_best.amlt'
 
+srun python -m srcs.train --seq_len_p_sec 0.8 --rep_dims 128 --diff_dims 256 --enc_ratios 8 --cond_enc_ratios 8 5 4 2 --n_residual_layers 1 --n_filters 32 --lstm 2 --finetune_model '/N/u/hy17/BigRed200/Projects/DiffCodec/saved_models/8_ae_tanh' --model_for_cond '/N/u/hy17/BigRed200/Projects/DiffCodec/saved_models/0516_encodec_libri_3kb' --final_activation Tanh --exp_name %j --batch_size 20 --run_diff --model_type unet --seq_length 1600 --cond_quantization --cond_bandwidth 3 --data_folder_path '/N/project/SAIGE_shared/librispeech' --lr 0.00005 
