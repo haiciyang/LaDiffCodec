@@ -226,7 +226,6 @@ if __name__ == '__main__':
     parser.add_argument('--batch_size', type=int, default=5)  
     parser.add_argument('--exp_name', type=str, default='')
     parser.add_argument('--finetune_model', type=str, default='')
-    parser.add_argument('--model_for_cond', type=str, default='')
     parser.add_argument('--write_on_every', type=int, default=50)  
     parser.add_argument('--model_type', type=str, default='transformer')  
     parser.add_argument('--freeze_ed', dest='freeze_ed', action='store_true')
@@ -254,6 +253,7 @@ if __name__ == '__main__':
     
 
     # Cond model
+    parser.add_argument('--model_for_cond', type=str, default='')
     parser.add_argument('--cond_enc_ratios', nargs='+', type=int)
     parser.add_argument('--cond_quantization', dest='cond_quantization', action='store_true')
     parser.add_argument('--cond_bandwidth', type=float, default=3.0)
@@ -318,7 +318,8 @@ if __name__ == '__main__':
 
     # model = DiffAudioRep(rep_dims=inp_args.rep_dims, emb_dims=inp_args.emb_dims, diff_dims=inp_args.diff_dims,  n_residual_layers=inp_args.n_residual_layers, n_filters=inp_args.n_filters, lstm=inp_args.lstm, quantization=inp_args.quantization, bandwidth=inp_args.bandwidth, sample_rate=inp_args.sample_rate, self_condition=inp_args.self_cond, seq_length=inp_args.seq_length, ratios=inp_args.enc_ratios, run_diff=inp_args.run_diff, run_vae=inp_args.run_vae, model_type=inp_args.model_type, scaling=inp_args.scaling).to(device)
 
-    model = DiffAudioRep(**vars(inp_args)).to(device)
+    other_cond = True if inp_args.model_for_cond else False
+    model = DiffAudioRep(other_cond=other_cond, **vars(inp_args)).to(device)
     disc = MSDisc(filters=32).cuda(gpu_rank) if inp_args.use_disc else None
 
     if inp_args.finetune_model:

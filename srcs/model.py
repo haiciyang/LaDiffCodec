@@ -32,7 +32,7 @@ def reshape_to_3dim(x):
 
 class DiffAudioRep(nn.Module):
 
-    def __init__(self, rep_dims=128, emb_dims=128, diff_dims=128, norm: str='weight_norm', causal: bool=True, dilation_base=2, n_residual_layers=1, n_filters=32, lstm=0, quantization=False, bandwidth=3, sample_rate=16000, qtz_condition=False, self_condition=False, seq_length=320, enc_ratios=[8, 5, 4, 2], run_diff=False, run_vae=False, model_type='', scaling_frame=False, scaling_feature=False, freeze_ed=False, final_activation=None, sampling_timesteps=None, **kwargs):
+    def __init__(self, rep_dims=128, emb_dims=128, diff_dims=128, norm: str='weight_norm', causal: bool=True, dilation_base=2, n_residual_layers=1, n_filters=32, lstm=0, quantization=False, bandwidth=3, sample_rate=16000, qtz_condition=False, self_condition=False, other_cond=False, seq_length=320, enc_ratios=[8, 5, 4, 2], run_diff=False, run_vae=False, model_type='', scaling_frame=False, scaling_feature=False, freeze_ed=False, final_activation=None, sampling_timesteps=None, **kwargs):
 
         super(). __init__()
 
@@ -46,8 +46,6 @@ class DiffAudioRep(nn.Module):
         self.model_type = model_type
         self.scaling_frame = scaling_frame
         self.scaling_feature = scaling_feature
-
-
 
 
         self.encoder = SEANetEncoder(channels=1, ratios=enc_ratios,\
@@ -72,7 +70,7 @@ class DiffAudioRep(nn.Module):
             
         if run_diff:
             if model_type == 'unet':
-                self.diff_model = Unet1D(dim = diff_dims, dim_mults=(1, 2, 2, 4, 4), inp_channels=rep_dims, self_condition=self_condition, qtz_condition=qtz_condition)
+                self.diff_model = Unet1D(dim = diff_dims, dim_mults=(1, 2, 2, 4, 4), inp_channels=rep_dims, self_condition=self_condition, qtz_condition=qtz_condition, other_cond=other_cond)
                 
             elif model_type == 'transformer':
                 self.diff_model = TransformerDDPM(rep_dims = rep_dims,
@@ -131,7 +129,7 @@ class DiffAudioRep(nn.Module):
         #     model_ed.eval()
         #     encoder = model_ed.encoder
         #     decoder = model_ed.decoder
-
+    
         x_rep = self.encoder(x)
 
         x_rep_qtz = None
@@ -163,10 +161,10 @@ class DiffAudioRep(nn.Module):
                 x_rep = reshape_to_4dim(x_rep)
                 diff_loss, predicted_x_start, *other_reps_from_diff = self.diffusion.loss(x_rep, t=t) # condition on training or only on sampling
                 in_dec = predicted_x_start.squeeze(1) * scale if scale is not None else predicted_x_start.squeeze(1)
-                x_hat = decoder(in_dec)
+                x_hat = self.decoder(in_dec)
             else:
                 x_rep = reshape_to_3dim(x_rep)
-                if cond is not None: # Conditions from different model
+                if cond is not None: # Conditions from a different model
                     diff_loss, predicted_x_start, *other_reps_from_diff = self.diffusion(x_rep, cond, t=t) 
                 elif self.qtz_condition:
                     diff_loss, predicted_x_start, *other_reps_from_diff = self.diffusion(x_rep, x_rep_qtz, t=t) 
@@ -198,7 +196,7 @@ class DiffAudioRep(nn.Module):
         if self.run_diff:
             # return {'diff_loss': diff_loss}
             # return {'diff_loss': diff_loss, 'neg_loss': neg_loss}, x_hat, xt, t
-            return {'diff_loss': diff_loss, 'neg_loss': neg_loss}, x_hat, x_rep, predicted_x_start, *other_reps_from_diff, x_rep_qtz
+            return {'diff_loss': diff_loss, 'neg_loss': neg_loss}, x_hat, x_rep, predicted_x_start, *other_reps_from_diff, x_rep_qtz, scale
             # return {'tot_loss': tot_loss, 'diff_loss': diff_loss, 'neg_loss': neg_loss}, x_hat, x_rep, predicted_x_start, *other_reps_from_diff, x_rep_qtz
         if self.run_vae:
             tot_loss = 0.1 * prior_loss + neg_loss
@@ -217,6 +215,8 @@ class DiffAudioRep(nn.Module):
         if self.quantization:
             quantizedResults = self.quantizer(x_rep, sample_rate=self.frame_rate, bandwidth=self.bandwidth)
             x_rep = quantizedResults.quantized
+        
+        
         
         return x_rep
 

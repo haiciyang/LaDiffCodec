@@ -12,6 +12,8 @@ from einops.layers.torch import Rearrange
 
 from tqdm.auto import tqdm
 
+from . import SEANetDecoder
+
 def exists(x):
     return x is not None
 
@@ -247,14 +249,15 @@ class Unet1D(nn.Module):
         learned_sinusoidal_cond = False,
         random_fourier_features = False,
         learned_sinusoidal_dim = 16,
-        qtz_condition=False
+        qtz_condition = False,
+        other_cond = False
     ):
         super().__init__()
 
         # determine dimensions
         self.channels = inp_channels
         self.self_condition = self_condition
-        input_channels = inp_channels * (2 if self_condition or qtz_condition else 1)
+        input_channels = inp_channels * (2 if self_condition or qtz_condition or other_cond else 1)
 
         init_dim = default(init_dim, dim)
 
@@ -323,6 +326,12 @@ class Unet1D(nn.Module):
         self.final_conv = nn.Conv1d(dim, self.out_dim, 1)
 
 
+        ## 
+        if other_cond:
+            self.upsampling_layer = SEANetDecoder(channels=1, ratios=[5, 4, 2], \
+            dimension=inp_channels, n_residual_layers=1, n_filters=16, lstm=0, kernel_size=7, last_kernel_size=7) 
+
+
     def forward(self, x, time, x_cond = None):
 
         if self.self_condition:
@@ -331,6 +340,9 @@ class Unet1D(nn.Module):
         elif exists(x_cond):
             if x_cond.shape[-1] < x.shape[-1]:
                 ratio = x.shape[-1] // x_cond.shape[-1]
+                # x_cond = self.upsampling_layer(x_cond)
+                # print(x_cond.shape)
+                # fake()
                 x_cond = torch.repeat_interleave(x_cond, ratio, dim=-1)
             x = torch.cat((x_cond, x), dim = 1)
 

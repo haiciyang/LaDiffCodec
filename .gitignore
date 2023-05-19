@@ -11,3 +11,4 @@ submit_job.script
 good_models/
 *.pyc
 srcs/__pycache__/
+srcs/bigRedScript.txt

@@ -35,6 +35,11 @@ module load python/3.8.10
 cd /N/u/hy17/BigRed200/Projects/DiffCodec
 
 #Run your program
-python -m srcs.train --seq_len_p_sec 0.8 --rep_dims 128 --diff_dims 256 --enc_ratios 8 --cond_enc_ratios 8 5 4 2 --n_residual_layers 1 --n_filters 32 --lstm 2 --finetune_model '/home/hy17/Projects/DiffCodec/saved_models/8_ae_tanh' --final_activation Tanh --exp_name 0517diff_8with_8542_longer --batch_size 20 --run_diff --model_type unet --seq_length 1600 --cond_quantization --cond_bandwidth 3 --debug
+python -m srcs.train --seq_len_p_sec 0.8 --rep_dims 128 --diff_dims 256 --enc_ratios 8 --cond_enc_ratios 8 5 4 2 --n_residual_layers 1 --n_filters 32 --lstm 2 --finetune_model '/N/u/hy17/BigRed200/Projects/DiffCodec/saved_models/8_ae' --model_for_cond '/N/u/hy17/BigRed200/Projects/DiffCodec/saved_models/0518_encodec_libri_3kb' --scaling_frame --exp_name 0518diff_8with_8542 --batch_size 20 --run_diff --model_type unet --seq_length 1600 --cond_quantization --cond_bandwidth 3 --data_folder_path '/N/project/SAIGE_shared/librispeech' --debug
 
-srun python -m srcs.train --seq_len_p_sec 0.8 --rep_dims 128 --diff_dims 256 --enc_ratios 8 --n_residual_layers 1 --n_filters 32 --lstm 2 --finetune_model '/N/u/hy17/BigRed200/Projects/DiffCodec/saved_models/0517diff_8_ae_scaling_feature_map' --exp_name 0517diff_8_ae_scaling_feature_map --scaling --batch_size 20 --run_diff --model_type unet --seq_length 1600 --data_folder_path '/N/project/SAIGE_shared/librispeech' --lr 0.00005
+python -m srcs.train --seq_len_p_sec 0.2 --enc_ratios 8 --n_residual_layers 1 --n_filters 32 --lstm 2 --finetune_model '/N/u/hy17/BigRed200/Projects/DiffCodec/saved_models/8_ae' --exp_name 0518diff_8_ae_scaling_u2d --batch_size 8 --run_diff --model_type unet2d  --data_folder_path '/N/project/SAIGE_shared/librispeech' --lr 0.00005 --debug
+
+python -m srcs.train --enc_ratios 8 5 4 2 --seq_len_p_sec 5 --n_residual_layers 1 --n_filters 32 --lstm 2 --finetune_model '/N/u/hy17/BigRed200/Projects/DiffCodec/saved_models/0511_encodec_tanh_libri_noqtz' --use_disc --disc_freq 5 --exp_name 0518_encodec_libri_3kb --quantization --bandwidth 3 --batch_size 25 --lr 0.00005 --data_folder_path '/N/project/SAIGE_shared/librispeech' --debug
+
+
+python -m srcs.sample --enc_ratios 8 --seq_len_p_sec 2.4 --n_residual_layers 1 --n_filters 32 --lstm 2 --model_path '/N/u/hy17/BigRed200/Projects/DiffCodec/saved_models/0517diff_8_ae_scaling_frame/model_best.amlt' --seq_length 4800 --model_type unet --rep_dims 128 --diff_dims 256 --data_folder_path '/N/project/SAIGE_shared/librispeech' --scaling_frame --run_diff
