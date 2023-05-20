@@ -185,6 +185,7 @@ class DiffAudioRep(nn.Module):
             x_hat = self.decoder(x_rep)
         
         neg_loss = sdr_loss(x, x_hat.detach()).mean()
+        # neg_loss = sdr_loss(x, x_hat).mean()
         # tot_loss = 0.01 * neg_loss + diff_loss
 
         # ==== Run Diffusion on time-domain ======
@@ -206,17 +207,17 @@ class DiffAudioRep(nn.Module):
             if not self.quantization: # and not self.training:
                 return {'neg_sdr': neg_loss}, x_hat
             else:
+                tot_loss = qtz_loss + neg_loss
                 # return {'neg_sdr': neg_loss}, x_hat
-                return {'qtz_loss': qtz_loss, 'neg_sdr': neg_loss}, x_hat
+                return {'tot_loss': tot_loss, 'qtz_loss': qtz_loss, 'neg_sdr': neg_loss}, x_hat
 
     def get_cond(self, x):
-
-        x_rep = self.encoder(x)
-        if self.quantization:
-            quantizedResults = self.quantizer(x_rep, sample_rate=self.frame_rate, bandwidth=self.bandwidth)
-            x_rep = quantizedResults.quantized
         
-        
+        with torch.no_grad():
+            x_rep = self.encoder(x)
+            if self.quantization:
+                quantizedResults = self.quantizer(x_rep, sample_rate=self.frame_rate, bandwidth=self.bandwidth)
+                x_rep = quantizedResults.quantized
         
         return x_rep
 

@@ -12,7 +12,7 @@ from einops.layers.torch import Rearrange
 
 from tqdm.auto import tqdm
 
-from . import SEANetDecoder
+from . import SEANetDecoder, SConvTranspose1d
 
 def exists(x):
     return x is not None
@@ -326,10 +326,15 @@ class Unet1D(nn.Module):
         self.final_conv = nn.Conv1d(dim, self.out_dim, 1)
 
 
-        ## 
+        # ## 
         if other_cond:
-            self.upsampling_layer = SEANetDecoder(channels=1, ratios=[5, 4, 2], \
-            dimension=inp_channels, n_residual_layers=1, n_filters=16, lstm=0, kernel_size=7, last_kernel_size=7) 
+            ratios = [5, 4, 2]
+            self.upsampling_layers = nn.ModuleList([])
+            for r in ratios:
+                # self.upsampling_layers.append(nn.ConvTranspose1d(dim//2, dim//2, kernel_size = r*2, stride=r))
+                self.upsampling_layers.append(
+                    SConvTranspose1d(dim//2, dim//2, kernel_size = r*2, stride=r, causal=False, trim_right_ratio=True))
+
 
 
     def forward(self, x, time, x_cond = None):
@@ -338,14 +343,15 @@ class Unet1D(nn.Module):
             x_self_cond = default(x_cond, lambda: torch.zeros_like(x))
             x = torch.cat((x_self_cond, x), dim = 1)
         elif exists(x_cond):
-            if x_cond.shape[-1] < x.shape[-1]:
-                ratio = x.shape[-1] // x_cond.shape[-1]
-                # x_cond = self.upsampling_layer(x_cond)
-                # print(x_cond.shape)
-                # fake()
-                x_cond = torch.repeat_interleave(x_cond, ratio, dim=-1)
-            x = torch.cat((x_cond, x), dim = 1)
 
+            if x_cond.shape[-1] < x.shape[-1]:
+
+                # ratio = x.shape[-1] // x_cond.shape[-1]
+                # x_cond = torch.repeat_interleave(x_cond, ratio, dim=-1)
+                for layer in self.upsampling_layers:
+                    x_cond = layer(x_cond)
+                
+            x = torch.cat((x_cond, x), dim = 1)
         x = self.init_conv(x)
         r = x.clone()
 

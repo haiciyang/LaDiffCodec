@@ -155,13 +155,14 @@ if __name__ == '__main__':
             # sample = ema.ema_model.sample(batch_size=1, condition=qtz_x0)
             # x_sample = model.decoder(sample)
 
-            # sample = model.diffusion.sample(batch_size=1)
+            sampled_rep = model.diffusion.sample(batch_size=1)
             # x_sample = model.decoder(sample)
+            # x_scale_sample = model.decoder(sample*scale)
 
             # ----- Infilling ----
 
-            # sample = model.diffusion.infilling(condition=x_rep_qtz, offset=200, lam=0.5)
-            # x_sample_fl = model.decoder(sample)
+            sample = model.diffusion.infilling(condition=sampled_rep, offset=300, lam=0.5)
+            x_sample = model.decoder(sample)
             # diff_fl = sample - x_rep_qtz
 
             # sample = model.diffusion.halfway_sampling(img=x_rep_qtz, t=400)
@@ -172,7 +173,7 @@ if __name__ == '__main__':
 
             out_dir = 'outputs/'
             px = ''
-            
+
             save_img(x0, name='rep', note=note, out_path = out_dir)
             save_img(predicted_x0, name=f'pred_t{t[0]}', note=note, out_path = out_dir)
             # save_img(predicted_x0 * scale, name=f'pred_scaled_t{t[0]}', note=note, out_path = out_dir)
@@ -188,17 +189,18 @@ if __name__ == '__main__':
             # # save_img(diff_half, f'diff_fl_{px}', note=note, out_path = out_dir)
             # # save_img(diff_fl, f'diff_fl_{px}', note=note, out_path = out_dir)
 
-            # # save_plot(x, f'x', note=note, out_path = out_dir)
+            # save_plot(x, f'x', note=note, out_path = out_dir)
             # save_plot(x_hat, f'x_hat_t{t[0]}', note=note, out_path = out_dir)
-            # save_plot(x_sample, 'x_sample', note=note, out_path = out_dir)
+            save_plot(x_sample, 'x_sample', note=note, out_path = out_dir)
             
-            # save_torch_wav(x, f'x', note=note, out_path = out_dir)
-            # save_torch_wav(x_hat, f'x_hat_{px}', note=note, out_path = out_dir)
+            save_torch_wav(x, f'x', note=note, out_path = out_dir)
+            save_torch_wav(x_hat, f'x_hat_{px}', note=note, out_path = out_dir)
             # save_torch_wav(x_hat2, f'x_hat2_{px}', note=note, out_path = out_dir)
             # save_torch_wav(x_hat2, f'x_hat2', note=note, out_path = out_dir)
 
-            # save_torch_wav(x_sample_fl, f'x_sample_fl_{px}', note=note, out_path = out_dir)
-            # save_torch_wav(x_sample, f'x_sample_ema{px}', note=note, out_path = out_dir)
+            # # save_torch_wav(x_sample_fl, f'x_sample_fl_{px}', note=note, out_path = out_dir)
+            save_torch_wav(x_sample, f'x_sample_{px}', note=note, out_path = out_dir)
+            # save_torch_wav(x_scale_sample, f'x_scale_sample_{px}', note=note, out_path = out_dir)
 
             # # save_img(sample, name='sample', note=note, out_path='outputs/')
 
