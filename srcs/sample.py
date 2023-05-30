@@ -97,7 +97,7 @@ if __name__ == '__main__':
     # model = DiffAudioRep(rep_dims=inp_args.rep_dims, diff_dims=inp_args.diff_dims, n_residual_layers=inp_args.n_residual_layers, n_filters=inp_args.n_filters, lstm=inp_args.lstm, quantization=inp_args.quantization, bandwidth=inp_args.bandwidth, sample_rate=inp_args.sample_rate, self_condition=inp_args.self_cond, seq_length=inp_args.seq_length, ratios=inp_args.enc_ratios, run_diff=inp_args.run_diff, run_vae=inp_args.run_vae, model_type=inp_args.model_type).to(device)
 
     model = DiffAudioRep(**vars(inp_args)).to(device)
-    # model_qtz = DiffAudioRep(**vars(inp_args)).to(device)
+
 
     # if inp_args.run_diff:
     #     ema = EMA(
@@ -109,14 +109,18 @@ if __name__ == '__main__':
     #     ema = load_model(ema, inp_args.model_path[:-15]+'ema_best.amlt', strict=True)
     #     ema.ema_model.eval()
     
-
     load_model(model, inp_args.model_path, strict=True)
-    # model_qtz= load_model(model_qtz, inp_args.qtzer_path, strict=False)
     model.eval()
-    # model_qtz.eval()
-    
-    # note = inp_args.model_path.split('/')[-1][:-5]
-    note = '0517diff_8_ae_scaling_frame'
+
+    model_for_cond = None
+    if inp_args.model_for_cond:
+
+        model_for_cond = DiffAudioRep(rep_dims=inp_args.rep_dims, emb_dims=inp_args.emb_dims, n_residual_layers=inp_args.n_residual_layers, n_filters=inp_args.n_filters, lstm=inp_args.lstm, quantization=inp_args.cond_quantization, bandwidth=inp_args.cond_bandwidth, ratios=inp_args.cond_enc_ratios, final_activation=inp_args.final_activation).to(device) # An autoencoder
+
+        load_model(model_for_cond, inp_args.model_for_cond + '/model_best.amlt')
+        model_for_cond.eval()
+
+    note = '0528_cond_film'
 
     # Conditioned
     with torch.no_grad():
@@ -129,7 +133,12 @@ if __name__ == '__main__':
             x = batch.unsqueeze(1).to(torch.float).to(device)
             
             t = torch.tensor([900]).to(device)
-            nums, *reps = model(x, t=t)
+
+            cond = None
+            if model_for_cond is not None:
+                cond = model_for_cond.get_cond(x)
+
+            nums, *reps = model(x, t=t, cond=cond)
             # nums, *reps = model_qtz(x, t)
 
             # x_rep = model.encoder(x)
@@ -155,14 +164,14 @@ if __name__ == '__main__':
             # sample = ema.ema_model.sample(batch_size=1, condition=qtz_x0)
             # x_sample = model.decoder(sample)
 
-            sampled_rep = model.diffusion.sample(batch_size=1)
+            # sampled_rep = model.diffusion.sample(batch_size=1)
             # x_sample = model.decoder(sample)
             # x_scale_sample = model.decoder(sample*scale)
 
             # ----- Infilling ----
 
-            sample = model.diffusion.infilling(condition=sampled_rep, offset=300, lam=0.5)
-            x_sample = model.decoder(sample)
+            # sample = model.diffusion.infilling(condition=sampled_rep, offset=300, lam=0.5)
+            # x_sample = model.decoder(sample)
             # diff_fl = sample - x_rep_qtz
 
             # sample = model.diffusion.halfway_sampling(img=x_rep_qtz, t=400)
@@ -178,7 +187,7 @@ if __name__ == '__main__':
             save_img(predicted_x0, name=f'pred_t{t[0]}', note=note, out_path = out_dir)
             # save_img(predicted_x0 * scale, name=f'pred_scaled_t{t[0]}', note=note, out_path = out_dir)
 
-            save_plot(scale.squeeze(), f'scale_{t[0]}', note=note, out_path = out_dir)
+            # save_plot(scale.squeeze(), f'scale_{t[0]}', note=note, out_path = out_dir)
 
             
             # save_img(sample, name=f'sample_{px}', note=note, out_path = out_dir)
@@ -189,17 +198,17 @@ if __name__ == '__main__':
             # # save_img(diff_half, f'diff_fl_{px}', note=note, out_path = out_dir)
             # # save_img(diff_fl, f'diff_fl_{px}', note=note, out_path = out_dir)
 
-            # save_plot(x, f'x', note=note, out_path = out_dir)
-            # save_plot(x_hat, f'x_hat_t{t[0]}', note=note, out_path = out_dir)
-            save_plot(x_sample, 'x_sample', note=note, out_path = out_dir)
+            save_plot(x, f'x', note=note, out_path = out_dir)
+            save_plot(x_hat, f'x_hat_t{t[0]}', note=note, out_path = out_dir)
+            # save_plot(x_sample, 'x_sample', note=note, out_path = out_dir)
             
-            save_torch_wav(x, f'x', note=note, out_path = out_dir)
-            save_torch_wav(x_hat, f'x_hat_{px}', note=note, out_path = out_dir)
+            # save_torch_wav(x, f'x', note=note, out_path = out_dir)
+            # save_torch_wav(x_hat, f'x_hat_{px}', note=note, out_path = out_dir)
             # save_torch_wav(x_hat2, f'x_hat2_{px}', note=note, out_path = out_dir)
             # save_torch_wav(x_hat2, f'x_hat2', note=note, out_path = out_dir)
 
             # # save_torch_wav(x_sample_fl, f'x_sample_fl_{px}', note=note, out_path = out_dir)
-            save_torch_wav(x_sample, f'x_sample_{px}', note=note, out_path = out_dir)
+            # save_torch_wav(x_sample, f'x_sample_{px}', note=note, out_path = out_dir)
             # save_torch_wav(x_scale_sample, f'x_scale_sample_{px}', note=note, out_path = out_dir)
 
             # # save_img(sample, name='sample', note=note, out_path='outputs/')

@@ -7,6 +7,7 @@
 """Convolutional layers wrappers and utilities."""
 
 import math
+import einops
 import typing as tp
 import warnings
 
@@ -14,6 +15,7 @@ import torch
 from torch import nn
 from torch.nn import functional as F
 from torch.nn.utils import spectral_norm, weight_norm
+
 
 from .norm import ConvLayerNorm
 
@@ -103,6 +105,26 @@ def unpad1d(x: torch.Tensor, paddings: tp.Tuple[int, int]):
     assert (padding_left + padding_right) <= x.shape[-1]
     end = x.shape[-1] - padding_right
     return x[..., padding_left: end]
+
+
+class ConvLinear(nn.Linear):
+    """
+    Convolution-friendly LayerNorm that moves channels to last dimensions
+    before running the normalization and moves them back to original position right after.
+    """
+    def __init__(self, dim, dim_out):
+        super().__init__(dim, dim_out)
+
+    def forward(self, x):
+        
+        if len(x.shape) == 2:
+            x = x.unsqueeze(1)
+
+        x = einops.rearrange(x, 'b ... t -> b t ...')
+        x = super().forward(x)
+        x = einops.rearrange(x, 'b t ... -> b ... t')
+        
+        return x
 
 
 class NormConv1d(nn.Module):

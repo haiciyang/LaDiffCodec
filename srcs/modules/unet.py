@@ -12,7 +12,7 @@ from einops.layers.torch import Rearrange
 
 from tqdm.auto import tqdm
 
-from . import SEANetDecoder, SConvTranspose1d
+from . import SEANetDecoder, SConvTranspose1d, ConvLinear
 
 def exists(x):
     return x is not None
@@ -154,8 +154,11 @@ class Block(nn.Module):
         return x
 
 class ResnetBlock(nn.Module):
-    def __init__(self, dim, dim_out, *, time_emb_dim = None, groups = 8):
+    def __init__(self, dim, dim_out, *, time_emb_dim = None, groups = 8, use_film=False, inp_dim=128):
         super().__init__()
+
+        self.use_film = use_film
+
         self.mlp = nn.Sequential(
             nn.SiLU(),
             nn.Linear(time_emb_dim, dim_out * 2)
@@ -165,9 +168,18 @@ class ResnetBlock(nn.Module):
         self.block2 = Block(dim_out, dim_out, groups = groups)
         self.res_conv = nn.Conv1d(dim, dim_out, 1) if dim != dim_out else nn.Identity()
 
-    def forward(self, x, time_emb = None):
+        if use_film:
+            self.scale_layer = ConvLinear(inp_dim, dim_out)
+            self.shift_layer = ConvLinear(inp_dim, dim_out)
 
-        scale_shift = None
+
+    def forward(self, x, time_emb = None, x_cond=None):
+
+        if self.use_film:
+            scale_shift = (self.scale_layer(x_cond), self.shift_layer(x_cond))
+        else:
+            scale_shift = None            
+
         if exists(self.mlp) and exists(time_emb):
             time_emb = self.mlp(time_emb)
             time_emb = rearrange(time_emb, 'b c -> b c 1')
@@ -250,14 +262,18 @@ class Unet1D(nn.Module):
         random_fourier_features = False,
         learned_sinusoidal_dim = 16,
         qtz_condition = False,
-        other_cond = False
+        other_cond = False,
+        use_film = False,
     ):
         super().__init__()
 
         # determine dimensions
         self.channels = inp_channels
         self.self_condition = self_condition
-        input_channels = inp_channels * (2 if self_condition or qtz_condition or other_cond else 1)
+        self.use_film = use_film
+
+        # input_channels = inp_channels * (2 if self_condition or qtz_condition or other_cond else 1)
+        input_channels = inp_channels * (2 if (self_condition or qtz_condition or other_cond) and not self.use_film else 1)
 
         init_dim = default(init_dim, dim)
 
@@ -299,7 +315,7 @@ class Unet1D(nn.Module):
 
             self.downs.append(nn.ModuleList([
                 block_klass(dim_in, dim_in, time_emb_dim = time_dim),
-                block_klass(dim_in, dim_in, time_emb_dim = time_dim),
+                block_klass(dim_in, dim_in, time_emb_dim = time_dim, use_film = use_film, inp_dim = inp_channels),
                 Residual(PreNorm(dim_in, LinearAttention(dim_in))),
                 Downsample(dim_in, dim_out) if not is_last else nn.Conv1d(dim_in, dim_out, 3, padding = 1)
             ]))
@@ -314,7 +330,7 @@ class Unet1D(nn.Module):
 
             self.ups.append(nn.ModuleList([
                 block_klass(dim_out + dim_in, dim_out, time_emb_dim = time_dim),
-                block_klass(dim_out + dim_in, dim_out, time_emb_dim = time_dim),
+                block_klass(dim_out + dim_in, dim_out, time_emb_dim = time_dim, use_film = use_film),
                 Residual(PreNorm(dim_out, LinearAttention(dim_out))),
                 Upsample(dim_out, dim_in) if not is_last else  nn.Conv1d(dim_out, dim_in, 3, padding = 1)
             ]))
@@ -335,10 +351,8 @@ class Unet1D(nn.Module):
                 self.upsampling_layers.append(
                     SConvTranspose1d(dim//2, dim//2, kernel_size = r*2, stride=r, causal=False, trim_right_ratio=True))
 
-
-
     def forward(self, x, time, x_cond = None):
-
+        
         if self.self_condition:
             x_self_cond = default(x_cond, lambda: torch.zeros_like(x))
             x = torch.cat((x_self_cond, x), dim = 1)
@@ -346,12 +360,14 @@ class Unet1D(nn.Module):
 
             if x_cond.shape[-1] < x.shape[-1]:
 
-                # ratio = x.shape[-1] // x_cond.shape[-1]
-                # x_cond = torch.repeat_interleave(x_cond, ratio, dim=-1)
-                for layer in self.upsampling_layers:
-                    x_cond = layer(x_cond)
-                
-            x = torch.cat((x_cond, x), dim = 1)
+                ratio = x.shape[-1] // x_cond.shape[-1]
+                x_cond = torch.repeat_interleave(x_cond, ratio, dim=-1)
+                # for layer in self.upsampling_layers:
+                #     x_cond = layer(x_cond)
+
+            if not self.use_film:
+                x = torch.cat((x_cond, x), dim = 1)
+        
         x = self.init_conv(x)
         r = x.clone()
 
@@ -362,7 +378,7 @@ class Unet1D(nn.Module):
             
             x = block1(x, t)
             h.append(x)
-            x = block2(x, t)
+            x = block2(x, t, x_cond)
             x = attn(x)
             h.append(x)
             x = downsample(x)
@@ -378,7 +394,7 @@ class Unet1D(nn.Module):
             x = block1(x, t)
 
             x = torch.cat((x, h.pop()), dim = 1)
-            x = block2(x, t)
+            x = block2(x, t, x_cond)
             x = attn(x)
             x = upsample(x)
 

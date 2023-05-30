@@ -113,9 +113,9 @@ def run_model(model=None, model_for_cond=None, ema=None, disc=None, data_loader=
         cond = None
         if model_for_cond is not None:
             cond = model_for_cond.get_cond(x)
+
         nums, *rest = model(x, cond=cond) 
         x_hat = rest[0]
-
 
         if model.training:
             if use_disc:
@@ -250,6 +250,7 @@ if __name__ == '__main__':
     parser.add_argument('--run_vae', dest='run_vae', action='store_true')
     parser.add_argument('--scaling_frame', dest='scaling_frame', action='store_true')
     parser.add_argument('--scaling_feature', dest='scaling_feature', action='store_true')
+    parser.add_argument('--use_film', dest='use_film', action='store_true')
     
 
     # Cond model

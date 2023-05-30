@@ -16,6 +16,7 @@ from .conv import (
     NormConvTranspose2d,
     SConv1d,
     SConvTranspose1d,
+    ConvLinear,
 )
 from .lstm import SLSTM
 from .seanet import SEANetEncoder, SEANetDecoder
