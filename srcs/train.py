@@ -250,6 +250,8 @@ if __name__ == '__main__':
     parser.add_argument('--run_vae', dest='run_vae', action='store_true')
     parser.add_argument('--scaling_frame', dest='scaling_frame', action='store_true')
     parser.add_argument('--scaling_feature', dest='scaling_feature', action='store_true')
+    parser.add_argument('--scaling_global', dest='scaling_global', action='store_true')
+    parser.add_argument('--scaling_dim', dest='scaling_dim', action='store_true')
     parser.add_argument('--use_film', dest='use_film', action='store_true')
     
 

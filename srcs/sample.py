@@ -29,6 +29,7 @@ from .utils import EMA, save_img, save_plot, save_torch_wav, load_model, nn_para
 from .model import DiffAudioRep
 from .dataset import EnCodec_data
 from .dataset_libri import Dataset_Libri
+from .losses import sdr_loss
 
 
 use_cuda = torch.cuda.is_available()
@@ -185,6 +186,7 @@ if __name__ == '__main__':
 
             save_img(x0, name='rep', note=note, out_path = out_dir)
             save_img(predicted_x0, name=f'pred_t{t[0]}', note=note, out_path = out_dir)
+            # save_img(xt, name=f'xt{t[0]}', note=note, out_path = out_dir)
             # save_img(predicted_x0 * scale, name=f'pred_scaled_t{t[0]}', note=note, out_path = out_dir)
 
             # save_plot(scale.squeeze(), f'scale_{t[0]}', note=note, out_path = out_dir)
@@ -212,6 +214,8 @@ if __name__ == '__main__':
             # save_torch_wav(x_scale_sample, f'x_scale_sample_{px}', note=note, out_path = out_dir)
 
             # # save_img(sample, name='sample', note=note, out_path='outputs/')
+
+            print(sdr_loss(x, x_hat))
 
             break
 
