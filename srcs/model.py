@@ -47,7 +47,7 @@ class DiffAudioRep(nn.Module):
         self.scaling_frame = scaling_frame
         self.scaling_feature = scaling_feature
         self.scaling_global = scaling_global
-
+        self.scaling_dim = scaling_dim
 
         self.encoder = SEANetEncoder(channels=1, ratios=enc_ratios,\
             dimension=rep_dims, norm=norm, causal=causal, dilation_base=dilation_base, n_residual_layers=n_residual_layers, n_filters=n_filters, lstm=lstm, kernel_size=7, last_kernel_size=7, final_activation=final_activation)
@@ -68,10 +68,13 @@ class DiffAudioRep(nn.Module):
         if freeze_ed:
             self.encoder.eval()
             self.decoder.eval()
+        
+        # if self.freeze_e_only:
+        #     self.encoder.eval()
             
         if run_diff:
             if model_type == 'unet':
-                self.diff_model = Unet1D(dim = diff_dims, dim_mults=(1, 2, 2, 4, 4), inp_channels=rep_dims, self_condition=self_condition, qtz_condition=qtz_condition, other_cond=other_cond, use_film=use_film)
+                self.diff_model = Unet1D(dim = diff_dims, dim_mults=(1, 2, 2, 4, 4), inp_channels=rep_dims, self_condition=self_condition, qtz_condition=qtz_condition, other_cond=other_cond, use_film=use_film, scaling_frame=scaling_frame, scaling_feature=scaling_feature, scaling_global=scaling_global, scaling_dim=scaling_dim, )
                 
             elif model_type == 'transformer':
                 self.diff_model = TransformerDDPM(rep_dims = rep_dims,
@@ -118,6 +121,29 @@ class DiffAudioRep(nn.Module):
 
         return rep, prior_loss
 
+    def scaling(self, x_rep, global_max=1):
+
+        B, C, L = x_rep.shape
+        
+        scale = None
+        if self.scaling_frame:
+            # ---- Scaling for every frames -----
+            scale, _ = torch.max(torch.abs(x_rep), 1, keepdim=True)
+            x_rep = x_rep / (scale + 1e-20)
+        elif self.scaling_feature:
+            # --- Scaling for the feature map --- 
+            scale, _ = torch.max(torch.abs(x_rep.reshape(B, C * L)), 1, keepdim=True)
+            scale = scale.unsqueeze(-1)
+            x_rep = x_rep / (scale + 1e-20)
+        elif self.scaling_global:
+            scale = global_max
+            x_rep = x_rep / scale
+        elif self.scaling_dim:
+            scale, _ = torch.max(torch.abs(x_rep), -1, keepdim=True)
+            x_rep = x_rep / scale
+
+        return x_rep, scale
+
 
     def forward(self, x, t=None, cond=None):  
         
@@ -147,23 +173,8 @@ class DiffAudioRep(nn.Module):
         if self.run_diff:
 
             B, C, L = x_rep.shape
-            scale = None
-            if self.scaling_frame:
-                # ---- Scaling for every frames -----
-                scale, _ = torch.max(torch.abs(x_rep), 1, keepdim=True)
-                x_rep = x_rep / (scale + 1e-20)
-            elif self.scaling_feature:
-                # --- Scaling for the feature map --- 
-                scale, _ = torch.max(torch.abs(x_rep.reshape(B, C * L)), 1, keepdim=True)
-                scale = scale.unsqueeze(-1)
-                x_rep = x_rep / (scale + 1e-20)
-            elif self.scaling_global:
-                scale = 18.0
-                x_rep = x_rep / scale
-            elif self.scaling_dim:
-                scale, _ = torch.max(torch.abs(x_rep), -1, keepdim=True)
-                x_rep = x_rep / scale
-            
+
+            x_rep, scale = self.scaling(x_rep, global_max=18.0)
                 
             if self.model_type == 'unet2d':
                 x_rep = reshape_to_4dim(x_rep)
@@ -173,6 +184,7 @@ class DiffAudioRep(nn.Module):
             else:
                 x_rep = reshape_to_3dim(x_rep)
                 if cond is not None: # Conditions from a different model
+                    # cond, _ = self.scaling(cond, global_max=5.50)
                     diff_loss, predicted_x_start, *other_reps_from_diff = self.diffusion(x_rep.detach(), cond, t=t) 
                 elif self.qtz_condition:
                     diff_loss, predicted_x_start, *other_reps_from_diff = self.diffusion(x_rep, x_rep_qtz, t=t) 

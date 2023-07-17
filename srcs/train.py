@@ -357,6 +357,8 @@ if __name__ == '__main__':
             optimizer_G = optim.Adam(model.diff_model.parameters(), lr=inp_args.lr)
         else:
             optimizer_G = optim.Adam(model.diffusion.parameters(), lr=inp_args.lr)
+    elif inp_args.opt_dec:
+        optimizer_G = optim.Adam(model.decoder.parameters(), lr=inp_args.lr)
     else:
         optimizer_G = optim.Adam(model.parameters(), lr=inp_args.lr)
     optimizer_D = optim.Adam(disc.parameters(), lr=3e-4, betas=(0.5, 0.9)) if inp_args.use_disc else None

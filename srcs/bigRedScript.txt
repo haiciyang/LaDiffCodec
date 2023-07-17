@@ -14,6 +14,12 @@ cd ~/Projects/DiffCodec
 python -m srcs.train --enc_ratios 8 5 4 2 --seq_len_p_sec 5 --n_residual_layers 1 --n_filters 32 --lstm 2  --quantization --bandwidth 24 --use_disc --disc_freq 5 --final_activation Tanh --exp_name 0515_encodec_tanh_libri_test --batch_size 20 --lr 0.00005 --data_folder_path '/N/project/SAIGE_shared/librispeech'
 
 
+python -m srcs.train --lr 0.00005 --seq_len_p_sec 2.4 --rep_dims 128 --diff_dims 256 --enc_ratios 8  --n_residual_layers 1 --n_filters 32 --lstm 2 --finetune_model '/N/u/hy17/BigRed200/Projects/DiffCodec/saved_models/8_ae' --exp_name 0626_stack_ups_scl_cond --run_diff --model_type unet --seq_length 4800 --data_folder_path '/N/project/SAIGE_shared/librispeech' --freeze_ed --scaling_frame --self_condition
+
+
+
+# 0518_encodec_libri_noqtz
+# 0614_encodec_libri_1kb
 
 #!/bin/bash
 
@@ -50,6 +56,12 @@ python -m srcs.train --seq_len_p_sec 0.2 --enc_ratios 8 5 4 2 --n_residual_layer
 python -m srcs.train --lr 0.00005 --seq_len_p_sec 0.8 --rep_dims 128 --diff_dims 256 --enc_ratios 8 --cond_enc_ratios 8 5 4 2 --n_residual_layers 1 --n_filters 32 --lstm 2 --finetune_model '/N/u/hy17/BigRed200/Projects/DiffCodec/saved_models/8_ae' --model_for_cond '/N/u/hy17/BigRed200/Projects/DiffCodec/saved_models/0518_encodec_libri_noqtz' --scaling_frame --exp_name 0530_cond_stack_ups --batch_size 20 --run_diff --model_type unet --seq_length 1600 --data_folder_path '/N/project/SAIGE_shared/librispeech' --freeze_ed --debug
 
 python -m srcs.train --lr 0.00005 --seq_len_p_sec 2.4 --rep_dims 128 --diff_dims 256 --enc_ratios 8 --cond_enc_ratios 8 5 4 2 --n_residual_layers 1 --n_filters 32 --lstm 2 --finetune_model '/N/u/hy17/BigRed200/Projects/DiffCodec/saved_models/8_ae' --model_for_cond '/N/u/hy17/BigRed200/Projects/DiffCodec/saved_models/0516_encodec_libri_3kb' --scaling_feature --exp_name 0612_cond_stack_ups_ft_3kb --run_diff --model_type unet --seq_length 4800 --data_folder_path '/N/project/SAIGE_shared/librispeech' --freeze_ed --cond_quantization --cond_bandwidth 3 --debug
+
+python -m srcs.train --lr 0.00005 --seq_len_p_sec 2.4 --rep_dims 128 --diff_dims 256 --enc_ratios 8 --cond_enc_ratios 8 5 4 2 --n_residual_layers 1 --n_filters 32 --lstm 2 --finetune_model '/N/u/hy17/BigRed200/Projects/DiffCodec/saved_models/8_ae' --model_for_cond '/N/u/hy17/BigRed200/Projects/DiffCodec/saved_models/0518_encodec_libri_noqtz' --exp_name 0626_stack_ups_scl_cond --run_diff --model_type unet --seq_length 4800 --data_folder_path '/N/project/SAIGE_shared/librispeech' --freeze_ed --scaling_frame
+
+
+
+
 
 
 python -m srcs.sample --enc_ratios 8 --seq_len_p_sec 2.4 --n_residual_layers 1 --n_filters 32 --lstm 2 --model_path '/N/u/hy17/BigRed200/Projects/DiffCodec/saved_models/0528_cond_film/model_best.amlt' --seq_length 4800 --model_type unet --rep_dims 128 --diff_dims 256 --data_folder_path '/N/project/SAIGE_shared/librispeech' --scaling_frame --run_diff --cond_enc_ratios 8 5 4 2

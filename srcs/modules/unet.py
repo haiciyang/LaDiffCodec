@@ -264,6 +264,11 @@ class Unet1D(nn.Module):
         qtz_condition = False,
         other_cond = False,
         use_film = False,
+
+        scaling_frame=False, 
+        scaling_feature=False, 
+        scaling_global=False, 
+        scaling_dim=False, 
     ):
         super().__init__()
 
@@ -271,6 +276,11 @@ class Unet1D(nn.Module):
         self.channels = inp_channels
         self.self_condition = self_condition
         self.use_film = use_film
+
+        self.scaling_frame = scaling_frame
+        self.scaling_feature = scaling_feature
+        self.scaling_global = scaling_global
+        self.scaling_dim = scaling_dim
 
         # input_channels = inp_channels * (2 if self_condition or qtz_condition or other_cond else 1)
         input_channels = inp_channels * (2 if (self_condition or qtz_condition or other_cond) and not self.use_film else 1)
@@ -341,7 +351,6 @@ class Unet1D(nn.Module):
         self.final_res_block = block_klass(dim * 2, dim, time_emb_dim = time_dim)
         self.final_conv = nn.Conv1d(dim, self.out_dim, 1)
 
-
         # ## 
         if other_cond:
             ratios = [5, 4, 2]
@@ -350,6 +359,35 @@ class Unet1D(nn.Module):
                 # self.upsampling_layers.append(nn.ConvTranspose1d(dim//2, dim//2, kernel_size = r*2, stride=r))
                 self.upsampling_layers.append(
                     SConvTranspose1d(dim//2, dim//2, kernel_size = r*2, stride=r, causal=False, trim_right_ratio=True))
+
+    def scaling(self, x_rep, global_max=1):
+
+        B, C, L = x_rep.shape
+        
+        # scale = None
+        # if self.scaling_frame:
+        #     # ---- Scaling for every frames -----
+        #     scale, _ = torch.max(torch.abs(x_rep), 1, keepdim=True)
+        #     x_rep = x_rep / (scale + 1e-20)
+        # elif self.scaling_feature:
+        #     # --- Scaling for the feature map --- 
+        #     scale, _ = torch.max(torch.abs(x_rep.reshape(B, C * L)), 1, keepdim=True)
+        #     scale = scale.unsqueeze(-1)
+        #     x_rep = x_rep / (scale + 1e-20)
+        # elif self.scaling_global:
+        #     scale = global_max
+        #     x_rep = x_rep / scale
+        # elif self.scaling_dim:
+        #     scale, _ = torch.max(torch.abs(x_rep), -1, keepdim=True)
+        #     x_rep = x_rep / scale
+        
+        # ---- Condition features only do feature-level scalig ---- 
+        scale, _ = torch.max(torch.abs(x_rep.reshape(B, C * L)), 1, keepdim=True)
+        scale = scale.unsqueeze(-1)
+        x_rep = x_rep / (scale + 1e-20)
+
+        return x_rep, scale
+
 
     def forward(self, x, time, x_cond = None):
         
@@ -363,6 +401,8 @@ class Unet1D(nn.Module):
                 # x_cond = torch.repeat_interleave(x_cond, ratio, dim=-1)
                 for layer in self.upsampling_layers:
                     x_cond = layer(x_cond)
+
+            x, _ = self.scaling(x)
 
             if not self.use_film:
                 x = torch.cat((x_cond, x), dim = 1)

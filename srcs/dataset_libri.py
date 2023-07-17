@@ -47,8 +47,8 @@ class Dataset_Libri(Dataset):
     
     def normalize_data(self, x):
 
-        x = x / 32768
-        # x = x / max(abs(x))
+        # x = x / 32768
+        x = x / max(abs(x)+1e-20)
         return x
 
     def __getitem__(self, idx):
