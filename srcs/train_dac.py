@@ -33,10 +33,23 @@ from .dataset import EnCodec_data
 from .dataset_libri import Dataset_Libri
 from .msstftd import MultiScaleSTFTDiscriminator as MSDisc
 
+import dac
+from dac.utils import load_model as load_dac
 
 use_cuda = torch.cuda.is_available()
 device = torch.device("cuda" if use_cuda else "cpu")
 
+
+def load_dac_model(model_type, tag):
+
+    if model_type == '44khz':
+        model = load_dac(tag='latest', model_type=model_type)
+    else:
+        model = load_dac(load_path = f'dac_runs/{model_type}/{tag}')
+    
+    model.eval().to('cuda')
+
+    return model
 
 def save_plot(x, name, note):
     x = x.squeeze().cpu().data.numpy()
@@ -114,8 +127,9 @@ def run_model(model=None, model_for_cond=None, ema=None, disc=None, data_loader=
 
         cond = None
         if model_for_cond is not None:
-            cond = model_for_cond.get_cond(x)
-
+            x_enc = model_for_cond.encode(x, n_quantizers=2)
+            cond = x_enc['z']   
+        
         nums, *rest = model(x, cond=cond) 
         x_hat = rest[0]
 
@@ -174,18 +188,6 @@ def run_model(model=None, model_for_cond=None, ema=None, disc=None, data_loader=
 
     return tot_nums, rest
     # return nums
-
-def load_dac(model_type, tag):
-
-    load_path = ''
-
-    if model_type == '44khz':
-        model = load_model(tag='latest', model_type=model_type)
-    else:
-        model = model(load_path)
-    model.eval().to('cuda')
-
-    return model
 
 
 def get_args():
@@ -271,10 +273,7 @@ if __name__ == '__main__':
 
     # Cond model
     parser.add_argument('--model_for_cond', type=str, default='')
-    parser.add_argument('--cond_enc_ratios', nargs='+', type=int)
-    parser.add_argument('--cond_quantization', dest='cond_quantization', action='store_true')
-    parser.add_argument('--cond_bandwidth', type=float, default=3.0)
-    parser.add_argument('--cond_global', type=float, default=3.0)
+    parser.add_argument('--cond_channels', type=int, default=1024)
     
     # Dist
     parser.add_argument('--use_disc', dest='use_disc', action='store_true')
@@ -348,12 +347,7 @@ if __name__ == '__main__':
 
     model_for_cond = None
     if inp_args.model_for_cond:
-
-        model_for_cond = DiffAudioRep(rep_dims=inp_args.rep_dims, emb_dims=inp_args.emb_dims, n_residual_layers=inp_args.n_residual_layers, n_filters=inp_args.n_filters, lstm=inp_args.lstm, quantization=inp_args.cond_quantization, bandwidth=inp_args.cond_bandwidth, ratios=inp_args.cond_enc_ratios, final_activation=inp_args.final_activation).to(device) # An autoencoder
-
-        load_model(model_for_cond, inp_args.model_for_cond + '/model_best.amlt')
-        model_for_cond.eval()
-
+        model_for_cond = load_dac_model(model_type=inp_args.model_for_cond, tag='best') # 
 
 
     ema = None
@@ -400,21 +394,7 @@ if __name__ == '__main__':
         start_time = time.time()
         tr_losses, rest = run_model(model, model_for_cond, ema, disc, train_loader, optimizer_G, optimizer_D, inp_args.use_disc, 
         inp_args.disc_freq, inp_args.debug)
-            
-        # if step % eval_every_step == 0:
-        #     x0 = reps[1]
-        #     self_cond = reps[2]
-        #     # sample = ema.ema_model.sample(batch_size=1)
 
-        #     for i in range(1):
-        #         save_img_on_tr(x0[i], name=f'rep_{step}_{i}th', note=inp_args.exp_name, out_path='outputs/')
-        #         save_img_on_tr(self_cond[i], name=f'selfCond_{step}_t{t[i]}_{i}th', note=inp_args.exp_name, out_path='outputs/')
-
-        # save_torch_wav(x[0], 'x', 'tr_sample')
-        # save_torch_wav(x_hat[0], 'x_hat', 'tr_sample')
-        # save_plot(x[0], 'x', 'tr_sample')
-        # save_plot(x_hat[0], 'x_hat', 'tr_sample')
-        # fake()
 
         if step % write_on_every == 0:
             with torch.no_grad():

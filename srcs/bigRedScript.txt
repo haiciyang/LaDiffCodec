@@ -57,7 +57,7 @@ python -m srcs.train --lr 0.00005 --seq_len_p_sec 0.8 --rep_dims 128 --diff_dims
 
 python -m srcs.train --lr 0.00005 --seq_len_p_sec 2.4 --rep_dims 128 --diff_dims 256 --enc_ratios 8 --cond_enc_ratios 8 5 4 2 --n_residual_layers 1 --n_filters 32 --lstm 2 --finetune_model '/N/u/hy17/BigRed200/Projects/DiffCodec/saved_models/8_ae' --model_for_cond '/N/u/hy17/BigRed200/Projects/DiffCodec/saved_models/0516_encodec_libri_3kb' --scaling_feature --exp_name 0612_cond_stack_ups_ft_3kb --run_diff --model_type unet --seq_length 4800 --data_folder_path '/N/project/SAIGE_shared/librispeech' --freeze_ed --cond_quantization --cond_bandwidth 3 --debug
 
-python -m srcs.train --lr 0.00005 --seq_len_p_sec 2.4 --rep_dims 128 --diff_dims 256 --enc_ratios 8 --cond_enc_ratios 8 5 4 2 --n_residual_layers 1 --n_filters 32 --lstm 2 --finetune_model '/N/u/hy17/BigRed200/Projects/DiffCodec/saved_models/8_ae' --model_for_cond '/N/u/hy17/BigRed200/Projects/DiffCodec/saved_models/0518_encodec_libri_noqtz' --exp_name 0626_stack_ups_scl_cond --run_diff --model_type unet --seq_length 4800 --data_folder_path '/N/project/SAIGE_shared/librispeech' --freeze_ed --scaling_frame
+python -m srcs.train_dac --lr 0.00005 --seq_len_p_sec 2.4 --rep_dims 128 --diff_dims 256 --enc_ratios 8 --n_residual_layers 1 --n_filters 32 --lstm 2 --finetune_model '/N/u/hy17/BigRed200/Projects/DiffCodec/saved_models/8_ae' --model_for_cond '44khz' --exp_name 0728_dac_test --run_diff --model_type unet --seq_length 4800 --data_folder_path '/N/project/SAIGE_shared/librispeech' --freeze_ed --scaling_feature
 
 
 

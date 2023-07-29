@@ -92,6 +92,7 @@ if __name__ == '__main__':
     parser.add_argument('--cond_enc_ratios', nargs='+', type=int)
     parser.add_argument('--cond_quantization', dest='cond_quantization', action='store_true')
     parser.add_argument('--cond_bandwidth', type=float, default=3.0)
+    parser.add_argument('--cond_global', type=float, default=3.0)
     
 
     inp_args = parser.parse_args() # Input arguments
@@ -158,7 +159,7 @@ if __name__ == '__main__':
 
             x_hat, x0, predicted_x0, xt, t, qtz_x0, scale = reps
 
-            img = torch.randn((120, 200))
+            # img = torch.randn((120, 200))
 
             # print(scale.squeeze())
 
@@ -173,6 +174,7 @@ if __name__ == '__main__':
             # sample = ema.ema_model.sample(batch_size=1, condition=qtz_x0)
             # x_sample = model.decoder(sample)
 
+            cond = cond / inp_args.cond_global
             sampled_rep = model.diffusion.sample(batch_size=1, condition=cond, clip_denoised=True)
             x_sample = model.decoder(sampled_rep)
             x_scale_sample = model.decoder(sampled_rep*scale)
@@ -192,7 +194,7 @@ if __name__ == '__main__':
 
             out_dir = 'outputs/'
             # px = str(t.item())
-            px = 'c_true'
+            px = 's300'
 
             # save_img(x0, name='rep', note=note, out_path = out_dir)
             # save_img(predicted_x0, name=f'pred_t{t[0]}_{px}', note=note, out_path = out_dir)
@@ -201,24 +203,24 @@ if __name__ == '__main__':
             # fake()
             # save_img(predicted_x0 * scale, name=f'pred_scaled_t{t[0]}', note=note, out_path = out_dir)
 
-            # save_plot(scale.squeeze(), f'scale', note=note, out_path = out_dir)
+            # # save_plot(scale.squeeze(), f'scale', note=note, out_path = out_dir)
             
-            save_img(sampled_rep, name=f'sample_{px}', note=note, out_path = out_dir)
-            save_img(sampled_rep*scale, name=f'sample_scale_f{px}', note=note, out_path = out_dir)
+            # save_img(sampled_rep, name=f'sample_{px}', note=note, out_path = out_dir)
+            # save_img(sampled_rep*scale, name=f'sample_scale_f{px}', note=note, out_path = out_dir)
 
-            # save_plot(x, f'x', note=note, out_path = out_dir)
-            # save_plot(x_hat, f'x_hat_t{t[0]}', note=note, out_path = out_dir)
-            # save_plot(x_sample, f'x_sample_{px}', note=note, out_path = out_dir)
-            # save_plot(x_scale_sample, f'x_scale_sample_{px}', note=note, out_path = out_dir)
+            # # # save_plot(x, f'x', note=note, out_path = out_dir)
+            save_plot(x_hat, f'x_hat_t{t[0]}', note=note, out_path = out_dir)
+            save_plot(x_sample, f'x_sample_{px}', note=note, out_path = out_dir)
+            save_plot(x_scale_sample, f'x_scale_sample_{px}', note=note, out_path = out_dir)
             
-            # save_torch_wav(x, f'x', note=note, out_path = out_dir)
-            # save_torch_wav(x_hat, f'x_hat_{px}', note=note, out_path = out_dir)
+            # save_torch_wav(x, f'x_{px}', note=note, out_path = out_dir)
+            save_torch_wav(x_hat, f'x_hat_{px}', note=note, out_path = out_dir)
 
             save_torch_wav(x_sample, f'x_sample_{px}', note=note, out_path = out_dir)
-            save_torch_wav(x_scale_sample, f'x_scale_sample{px}', note=note, out_path = out_dir)
+            save_torch_wav(x_scale_sample, f'x_scale_sample_{px}', note=note, out_path = out_dir)
             
             print(sdr_loss(x, x_sample))
-            # print(sdr_loss(x, x_scale_sample))
+            print(sdr_loss(x, x_scale_sample))
 
             break
 

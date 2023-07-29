@@ -32,7 +32,7 @@ def reshape_to_3dim(x):
 
 class DiffAudioRep(nn.Module):
 
-    def __init__(self, rep_dims=128, emb_dims=128, diff_dims=128, norm: str='weight_norm', causal: bool=True, dilation_base=2, n_residual_layers=1, n_filters=32, lstm=0, quantization=False, bandwidth=3, sample_rate=16000, qtz_condition=False, self_condition=False, other_cond=False, seq_length=320, enc_ratios=[8, 5, 4, 2], run_diff=False, run_vae=False, model_type='', scaling_frame=False, scaling_feature=False, scaling_global=False, scaling_dim=False, freeze_ed=False, final_activation=None, sampling_timesteps=None, use_film=False, **kwargs):
+    def __init__(self, rep_dims=128, emb_dims=128, diff_dims=128, norm: str='weight_norm', causal: bool=True, dilation_base=2, n_residual_layers=1, n_filters=32, lstm=0, quantization=False, bandwidth=3, sample_rate=16000, qtz_condition=False, self_condition=False, other_cond=False, seq_length=320, enc_ratios=[8, 5, 4, 2], run_diff=False, run_vae=False, model_type='', scaling_frame=False, scaling_feature=False, scaling_global=False, scaling_dim=False, freeze_ed=False, final_activation=None, sampling_timesteps=None, use_film=False, cond_global=1, cond_channels=128, **kwargs):
 
         super(). __init__()
 
@@ -48,6 +48,7 @@ class DiffAudioRep(nn.Module):
         self.scaling_feature = scaling_feature
         self.scaling_global = scaling_global
         self.scaling_dim = scaling_dim
+        self.cond_global = cond_global
 
         self.encoder = SEANetEncoder(channels=1, ratios=enc_ratios,\
             dimension=rep_dims, norm=norm, causal=causal, dilation_base=dilation_base, n_residual_layers=n_residual_layers, n_filters=n_filters, lstm=lstm, kernel_size=7, last_kernel_size=7, final_activation=final_activation)
@@ -74,7 +75,7 @@ class DiffAudioRep(nn.Module):
             
         if run_diff:
             if model_type == 'unet':
-                self.diff_model = Unet1D(dim = diff_dims, dim_mults=(1, 2, 2, 4, 4), inp_channels=rep_dims, self_condition=self_condition, qtz_condition=qtz_condition, other_cond=other_cond, use_film=use_film, scaling_frame=scaling_frame, scaling_feature=scaling_feature, scaling_global=scaling_global, scaling_dim=scaling_dim, )
+                self.diff_model = Unet1D(dim = diff_dims, dim_mults=(1, 2, 2, 4, 4), inp_channels=rep_dims, self_condition=self_condition, qtz_condition=qtz_condition, other_cond=other_cond, use_film=use_film, scaling_frame=scaling_frame, scaling_feature=scaling_feature, scaling_global=scaling_global, scaling_dim=scaling_dim, cond_global=cond_global, cond_channels=cond_channels)
                 
             elif model_type == 'transformer':
                 self.diff_model = TransformerDDPM(rep_dims = rep_dims,
@@ -184,7 +185,8 @@ class DiffAudioRep(nn.Module):
             else:
                 x_rep = reshape_to_3dim(x_rep)
                 if cond is not None: # Conditions from a different model
-                    # cond, _ = self.scaling(cond, global_max=5.50)
+                    # cond, _ = self.scaling(cond, global_max=self.cond_global)
+                    # cond, _ = self.scaling(cond)
                     diff_loss, predicted_x_start, *other_reps_from_diff = self.diffusion(x_rep.detach(), cond, t=t) 
                 elif self.qtz_condition:
                     diff_loss, predicted_x_start, *other_reps_from_diff = self.diffusion(x_rep, x_rep_qtz, t=t) 
