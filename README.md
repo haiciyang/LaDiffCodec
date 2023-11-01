@@ -1,5 +1,5 @@
 # LaDiffCodec
-Open-source code for paper - GENERATIVE DE-QUANTIZATION FOR NEURAL SPEECH CODEC VIA LATENT DIFFUSION (submitted to ICASSP 2024)
+Open-sourced codes for paper - GENERATIVE DE-QUANTIZATION FOR NEURAL SPEECH CODEC VIA LATENT DIFFUSION (submitted to ICASSP 2024)
 ## Prerequisites
 ### Environment
 <code> pip -r install requirements.txt </code>
@@ -25,7 +25,8 @@ Librispeech
 ### 1. Pre-train Codec (Discrete autoencoder)
 The diffusion model is built upon pre-trained EnCodec or DAC codecs. 
 
-- Encodec specific hyper-parameters
+- Encodec specific hyper-parameters:
+  
 | Symbol | Description | 
 | --- | ----------- |
 | rep_dims         |  Running diffusion model| 
