@@ -1,5 +1,7 @@
 # LaDiffCodec
-Open-sourced codes for paper - GENERATIVE DE-QUANTIZATION FOR NEURAL SPEECH CODEC VIA LATENT DIFFUSION (submitted to ICASSP 2024)
+Open-sourced codes for paper - GENERATIVE DE-QUANTIZATION FOR NEURAL SPEECH CODEC VIA LATENT DIFFUSION (Accepted by ICASSP 2024)
+
+Cite as: <i>Yang, Haici, Inseon Jang, and Minje Kim. "Generative De-Quantization for Neural Speech Codec Via Latent Diffusion." ICASSP 2024-2024 IEEE International Conference on Acoustics, Speech and Signal Processing (ICASSP). IEEE, 2024.</i>
 ## Prerequisites
 ### Environment
 <code> pip -r install requirements.txt </code>
@@ -20,6 +22,17 @@ Librispeech
 | scaling_feature                 | Apply scaling on each feature map only |
 | scaling_global               |  Apply scaling globally |
 | enc_ratios   | The downsampling ratios of encoder (and decoder)  | 
+
+## Pretrained Checkpoints:
+We provided pretrained 16khz EnCodec and LaDiffCodec at 1.5kbps and 3kbps at [link](https://indiana-my.sharepoint.com/:f:/g/personal/hy17_iu_edu/Eo9tTiag-u9JtkswVUr5wWIBKrA6hyEJx-TTF2USOGsSVQ?e=MDPijk).
+The downsampling rate of the provided LaDiffCodec is 8.
+To use the pretrained models - 
+- 3kbps
+  
+<code>python -m srcs.sample --seq_len_p_sec 3.2 --rep_dims 128 --diff_dims 256 --enc_ratios 8 --cond_enc_ratios 8 5 4 2 --model_for_cond 'EnCodec_libri_3kb/model_best.amlt' --model_path 'Ladiff_3kb_8/model_best.amlt' --run_diff --seq_length 320 --scaling_global --cond_quantization --cond_bandwidth 3 --unet_scale_cond --upsampling_ratios 5 4 2 </code>
+- 1.5kbps
+  
+<code>python -m srcs.sample --seq_len_p_sec 3.2 --rep_dims 128 --diff_dims 256 --enc_ratios 8 --cond_enc_ratios 8 5 4 2 --model_for_cond 'EnCodec_libri_1_5kb/model_best.amlt' --model_path 'Ladiff_1_5kb_8/model_best.amlt' --run_diff --seq_length 320 --scaling_global --cond_quantization --cond_bandwidth 1.5 --unet_scale_cond --upsampling_ratios 5 4 2 </code>
 
 ## Training steps
 ### 1. Pre-train Codec (Discrete autoencoder)
@@ -42,7 +55,3 @@ The diffusion model is built upon pre-trained EnCodec or DAC codecs.
 ### 3. Diffusion model training
 #### Examples:
 <code> python -m srcs.train --lr 0.00005 --seq_len_p_sec 2.4 --rep_dims 128 --diff_dims 256 --n_residual_layers 1 --enc_ratios 8 4 --finetune_model \[PATH TO CONTINUOUS MODEL\] --n_filters 32 --lstm 2 --model_for_cond \[PATH TO DISCRETE CODEC\] --exp_name \[EXPERIMENT NAME\] --run_diff --model_type unet --seq_length 1200 --data_folder_path \[DATA FOLDER\] --scaling_global --cond_quantization --cond_bandwidth 1 </code>
-
-## Model Evaluation
-#### Examples:
-<code> python -m srcs.sample --seq_len_p_sec 2.4 --rep_dims 128 --diff_dims 256 --n_residual_layers 1 --enc_ratios 8 4 --finetune_model \[PATH TO CONTINUOUS MODEL\] --n_filters 32 --lstm 2 --model_for_cond \[PATH TO DISCRETE CODEC\] --exp_name \[EXPERIMENT NAME\] --run_diff --model_type unet --seq_length 1200 --data_folder_path \[DATA FOLDER\] --scaling_global --cond_quantization --cond_bandwidth 1 </code>
