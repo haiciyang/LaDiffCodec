@@ -79,9 +79,10 @@ def save_torch_wav(x, name, note, out_path=''):
         save_path = f"{note}_{name}.wav"
  
     x = x.squeeze().cpu().data.numpy()
+    print(f'Saved at {save_path}')
     wavfile.write(save_path, 16000, x/np.max(np.abs(x)))
 
-def save_checkpoints(model, ema, disc, output_dir, exp_name, note=''):
+def save_checkpoints(model, output_dir, exp_name, ema=None, disc=None, note=''):
 
     directory = f'{output_dir}/{exp_name}'
     if not os.path.exists(directory):

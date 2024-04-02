@@ -66,7 +66,7 @@ class ResidualVectorQuantizer(nn.Module):
             threshold_ema_dead_code=self.threshold_ema_dead_code,
         )
 
-    def forward(self, x: torch.Tensor, sample_rate: int, bandwidth: tp.Optional[float] = None) -> QuantizedResult:
+    def forward(self, x: torch.Tensor, sample_rate: int, bandwidth: tp.Optional[float] = None, n_q: tp.Optional[float] = None) -> QuantizedResult:
         """Residual vector quantization on the given input tensor.
         Args:
             x (torch.Tensor): Input tensor.
@@ -78,7 +78,7 @@ class ResidualVectorQuantizer(nn.Module):
                 the associated bandwidth and any penalty term for the loss.
         """
         bw_per_q = self.get_bandwidth_per_quantizer(sample_rate)
-        n_q = self.get_num_quantizers_for_bandwidth(sample_rate, bandwidth)
+        n_q = self.get_num_quantizers_for_bandwidth(sample_rate, bandwidth) if n_q is None else n_q
         quantized, codes, commit_loss = self.vq(x, n_q=n_q)
         bw = torch.tensor(n_q * bw_per_q).to(x)
         return QuantizedResult(quantized, codes, bw, penalty=torch.mean(commit_loss))

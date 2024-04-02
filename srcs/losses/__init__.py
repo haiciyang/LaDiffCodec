@@ -11,5 +11,6 @@
 from .losses_fn import prior_loss_fn, melspec_loss_fn, ClippedSDR
 from .ddpm_loss import GaussianDiffusion1D
 from .ddpm_loss_lab import DenoiseDiffusion
+from .discrete_diff import AbsorbingDiffusion
 
 sdr_loss = ClippedSDR()

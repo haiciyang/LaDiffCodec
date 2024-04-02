@@ -119,14 +119,18 @@ class GaussianDiffusion1D(nn.Module):
         
         timesteps, = betas.shape
         self.num_timesteps = int(timesteps)
+        
         self.loss_type = loss_type
 
         # sampling related parameters
 
         self.sampling_timesteps = default(sampling_timesteps, timesteps) # default num sampling timesteps to number of timesteps at training
+        # self.num_timesteps = self.sampling_timesteps
 
-        assert self.sampling_timesteps <= timesteps
-        self.is_ddim_sampling = self.sampling_timesteps < timesteps
+        # assert self.sampling_timesteps <= timesteps
+        # self.is_ddim_sampling = self.sampling_timesteps < timesteps
+        self.is_ddim_sampling = False
+
         self.ddim_sampling_eta = ddim_sampling_eta
 
         # helper function to register buffer from float64 to float32
@@ -234,6 +238,7 @@ class GaussianDiffusion1D(nn.Module):
             x_start.clamp_(-1., 1.)
 
         model_mean, posterior_variance, posterior_log_variance = self.q_posterior(x_start = x_start, x_t = x, t = t)
+        
         return model_mean, posterior_variance, posterior_log_variance, x_start
 
     @torch.no_grad()
@@ -298,7 +303,7 @@ class GaussianDiffusion1D(nn.Module):
         return img
 
     @torch.no_grad()
-    def sample(self, batch_size = 16, condition=None):
+    def sample(self, batch_size = 16, condition=None, ):
         seq_length, channels = self.seq_length, self.channels
         sample_fn = self.p_sample_loop if not self.is_ddim_sampling else self.ddim_sample
         return sample_fn((batch_size, channels, seq_length), condition)
@@ -324,47 +329,63 @@ class GaussianDiffusion1D(nn.Module):
         return img
 
     @torch.no_grad()
-    def infilling(self, condition, t = None, noise = None, offset=0, lam = 0.8):
+    def infilling(self, infill_img, condition, midway_t = None, noise = None, offset=0, lam = 0.8):
 
         batch, device = condition.shape[0], self.betas.device
 
-        img = torch.randn(condition.shape, device=device)
+        # img = torch.randn(condition.shape, device=device)
+        img = torch.rand((batch, self.channels, self.seq_length)).to(device)
+
+        # infill_img = condition
+        # if img.shape != infill_img.shape:
+        #     for layer in self.model.upsampling_layers:
+        #         infill_img = layer(infill_img)
 
         x_start = None
 
         offset = offset
 
-        for t in tqdm(reversed(range(0, self.num_timesteps)), desc = 'sampling loop time step', total = self.num_timesteps):
+        for t in tqdm(reversed(range(0, midway_t)), desc = 'sampling loop time step', total = self.sampling_timesteps):
             
-            cond = x_start if self.self_condition else None
+            cond = x_start if self.self_condition else condition
             img, x_start = self.p_sample(img, t, cond)
 
-            if t >= offset:
-                noise = default(noise, lambda: torch.randn_like(condition))
-                t_batched = torch.full((batch,), t - offset, device = device)
-                c_t = self.q_sample(x_start = condition, t = t_batched, noise = noise)
+            # noise = default(noise, lambda: torch.randn_like(condition))
+            noise = default(noise, lambda: torch.randn_like(infill_img))
+            
+            # if t > midway_t:
+            #     t_batched = torch.full((batch,), t - midway_t, device = device)
+            #     c_t = self.q_sample(x_start = infill_img, t = t_batched, noise = noise)
 
-                img = (1 - lam) * img + lam * c_t
+            img = (1 - lam) * img + lam * infill_img
+
+            infill_img, x_start = self.p_sample(infill_img, t, cond)
+            c_t = infill_img
+            img = (1 - lam) * img + lam * c_t
 
         # img = self.unnormalize(img)
         return img
 
 
     @torch.no_grad()
-    def halfway_sampling(self, img=None,  t = None):
+    def halfway_sampling(self, img=None,  t = None, condition=None):
 
         img = img
         x_start = None
 
-        for i in tqdm(reversed(range(0, t)), desc = 'interpolation sample time step', total = t):
-            self_cond = x_start if self.self_condition else None
-            img, x_start = self.p_sample(img, i, self_cond)
+        if img.shape == condition.shape:
+            for layer in self.model.upsampling_layers:
+                img = layer(img)
+
+        for i in tqdm(reversed(range(0, t)), desc = 'half-way sample time step', total = t):
+            cond = x_start if self.self_condition else condition
+            img, x_start = self.p_sample(img, i, cond)
 
         return img
 
     def q_sample(self, x_start, t, noise=None):
         noise = default(noise, lambda: torch.randn_like(x_start))
-
+        
         return (
             extract(self.sqrt_alphas_cumprod, t, x_start.shape) * x_start +
             extract(self.sqrt_one_minus_alphas_cumprod, t, x_start.shape) * noise

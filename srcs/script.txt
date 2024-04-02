@@ -65,4 +65,46 @@ CUDA_VISIBLE_DEVICES=0, python -m srcs.sample_unet2d --enc_ratios 8 5 4 2 --seq_
 
 CUDA_VISIBLE_DEVICES=7, python -m srcs.sample --enc_ratios 8 5 4 2 --seq_len_p_sec 3.2 --n_residual_layers 1 --n_filters 32 --lstm 2 --final_activation Tanh --quantization --bandwidth 3 --model_path '/home/hy17/Projects/DiffCodec/saved_models/0516_encodec_libri_3kb/model_best.amlt'
 
-srun python -m srcs.train --seq_len_p_sec 0.8 --rep_dims 128 --diff_dims 256 --enc_ratios 8 --cond_enc_ratios 8 5 4 2 --n_residual_layers 1 --n_filters 32 --lstm 2 --finetune_model '/N/u/hy17/BigRed200/Projects/DiffCodec/saved_models/8_ae_tanh' --model_for_cond '/N/u/hy17/BigRed200/Projects/DiffCodec/saved_models/0516_encodec_libri_3kb' --final_activation Tanh --exp_name %j --batch_size 20 --run_diff --model_type unet --seq_length 1600 --cond_quantization --cond_bandwidth 3 --data_folder_path '/N/project/SAIGE_shared/librispeech' --lr 0.00005 
+python -m srcs.sample --enc_ratios 8 --seq_len_p_sec 3.6 --n_residual_layers 1 --n_filters 32 --lstm 2 --model_path '/home/hy17/Projects/DiffCodec/saved_models/0828_glb_condft_3kb_8/model_best.amlt' --seq_length 7200 --model_type unet --rep_dims 128 --diff_dims 256 --run_diff --model_for_cond '/home/hy17/Projects/DiffCodec/saved_models/0614_encodec_libri_3kb' --cond_enc_ratios 8 5 4 2 --scaling_global --cond_bandwidth 3 --cond_quantization 
+
+
+CUDA_VISIBLE_DEVICES=0, python -m srcs.sample --enc_ratios 8 --seq_len_p_sec 3.6 --n_residual_layers 1 --n_filters 32 --lstm 2 --model_path '/home/hy17/Projects/DiffCodec/saved_models/0827_glb_condft_1kb_8/model_best.amlt' --seq_length 7200 --model_type unet --rep_dims 128 --diff_dims 256 --run_diff --model_for_cond '/home/hy17/Projects/DiffCodec/saved_models/0614_encodec_libri_1kb' --cond_enc_ratios 8 5 4 2 --scaling_global --cond_bandwidth 1 --cond_quantization 
+
+CUDA_VISIBLE_DEVICES=0, python -m srcs.sample --enc_ratios 8 --seq_len_p_sec 3.6 --n_residual_layers 1 --n_filters 32 --lstm 2 --model_path '/home/hy17/Projects/DiffCodec/saved_models/0904_glb_condft_1_5kb_8/model_80.amlt' --seq_length 7200 --model_type unet --rep_dims 128 --diff_dims 256 --run_diff --model_for_cond '/home/hy17/Projects/DiffCodec/saved_models/0614_encodec_libri_1_5kb' --cond_enc_ratios 8 5 4 2 --scaling_global --cond_bandwidth 1.5 --cond_quantization --unet_scale_cond --upsampling_ratios 5 4 2
+
+CUDA_VISIBLE_DEVICES=1, python -m srcs.sample --seq_len_p_sec 3.2 --rep_dims 128 --diff_dims 256 --enc_ratios 8 --cond_enc_ratios 8 5 4 2 --n_residual_layers 1 --n_filters 32 --lstm 2 --model_for_cond '/home/hy17/Projects/DiffCodec/saved_models/0614_encodec_libri_3kb' --model_path '/home/hy17/Projects/DiffCodec/saved_models/0828_glb_condft_3kb_8/model_best.amlt' --run_diff --model_type unet --scaling_global --cond_quantization --cond_bandwidth 3 --unet_scale_cond --upsampling_ratios 5 4 2
+
+python -m srcs.sample --model_for_cond '/home/hy17/Projects/DiffCodec/saved_models/0614_encodec_libri_3kb' --model_path '/home/hy17/Projects/DiffCodec/saved_models/0831_glb_condft_3kb_8/model_best.amlt' --scaling_global --cond_quantization --cond_bandwidth 3 --unet_scale_cond --input_dir '/home/hy17/Projects/DiffCodec/outputs/0831_glb_condft_3kb_8' --output_dir '/home/hy17/Projects/DiffCodec/outputs/test' --upsampling_ratios 5 4 2
+
+python -m srcs.sample --seq_len_in_sec 3.2 --rep_dims 128 --diff_dims 256 --enc_ratios 8 --model_for_cond '/home/hy17/Projects/DiffCodec/saved_models/0614_encodec_libri_3kb' --model_path '/home/hy17/Projects/DiffCodec/saved_models/0831_glb_condft_3kb_8/model_best.amlt' --run_diff --model_type unet --seq_length 6400 --scaling_global --cond_quantization --cond_bandwidth 3 --unet_scale_cond --upsampling_ratios 5 4 2 --input_dir '/home/hy17/Projects/DiffCodec/outputs/0831_glb_condft_3kb_8' --output_dir '/home/hy17/Projects/DiffCodec/outputs/test'
+
+--seq_len_in_sec 3.2
+
+python -m srcs.sample --seq_len_p_sec 3.2 --diff_dims 256 --cond_enc_ratios 8 5 4 2 --model_for_cond '/home/hy17/Projects/DiffCodec/saved_models/0614_encodec_libri_1_5kb' --model_path '/home/hy17/Projects/DiffCodec/saved_models/0830_time_condft_glb/model_best.amlt' --run_diff --model_type unet --seq_length 51200  --scaling_global --cond_quantization --cond_bandwidth 1.5 --train_time_diff --upsampling_ratios 8 5 4 2 --unet_scale_cond --unet_scale_x 
+
+
+CUDA_VISIBLE_DEVICES=0, python -m srcs.sample --seq_len_p_sec 3.2 --rep_dims 128 --diff_dims 256 --enc_ratios 8 --cond_enc_ratios 8 5 4 2 --n_residual_layers 1 --n_filters 32 --lstm 2 --model_for_cond '/home/hy17/Projects/DiffCodec/saved_models/0614_encodec_libri_3kb' --model_path '/home/hy17/Projects/DiffCodec/saved_models/0831_glb_condft_3kb_8/model_best.amlt' --run_diff --model_type unet --seq_length 320 --scaling_global --cond_quantization --cond_bandwidth 3 --unet_scale_cond --upsampling_ratios 5 4 2
+
+python -m srcs.train_dac_discrete --exp_name 0817_discrete_basic --debug
+
+CUDA_VISIBLE_DEVICES=2, python -m srcs.train_dac_discrete --exp_name 0819_discrete_transf_ncb2_cond --n_codebooks 2 --batch_size 50 --lr 0.0001 --model_type transformer --debug
+
+CUDA_VISIBLE_DEVICES=3, python -m srcs.train_dac_discrete --exp_name 0821_discrete_unet_ncb2_cond --n_codebooks 2 --batch_size 50 --lr 0.0001 --model_type unet --seq_len_p_sec 8.192 --debug
+
+
+CUDA_VISIBLE_DEVICES=4, python -m srcs.train_dac_discrete  --rep_dims 128 --diff_dims 256 --n_residual_layers 1 --enc_ratios 8 5 4 2 --n_filters 32 --lstm 2 --quantization --bandwidth 3 --exp_name 0821_discrete_unet_ncb2_cond --n_codebooks 2 --batch_size 50 --lr 0.0001 --model_type unet --load_encodec 0614_encodec_libri_3kb --seq_len_p_sec 3.2 --cond_dims 128 --debug
+
+
+CUDA_VISIBLE_DEVICES=0, python -m srcs.sample --seq_len_in_sec 3.2 --rep_dims 128 --diff_dims 256 --enc_ratios 8 --cond_enc_ratios 8 5 4 2 --n_residual_layers 1 --n_filters 32 --lstm 2 --model_for_cond '/home/hy17/Projects/DiffCodec/saved_models/0614_encodec_libri_3kb' --model_path '/home/hy17/Projects/DiffCodec/saved_models/0831_glb_condft_3kb_8/model_best.amlt' --run_diff --model_type unet --seq_length 320 --scaling_global --cond_quantization --cond_bandwidth 3 --unet_scale_cond --upsampling_ratios 5 4 2 --input_dir '/home/hy17/Projects/DiffCodec/outputs/0831_glb_condft_3kb_8' --output_dir '/home/hy17/Projects/DiffCodec/outputs/test'
+
+
+
+------ nisqa ---
+
+python run_predict.py --mode predict_file --pretrained_model weights/nisqa.tar --deg /home/hy17/Projects/DiffCodec/outputs/0827_glb_condft_1kb_8/300_x_sample_infil_1.0_100_0.6.wav --output_dir /home/hy17/Projects/DiffCodec/outputs/
+
+python run_predict.py --mode predict_file --pretrained_model weights/nisqa.tar --deg /home/hy17/Projects/DiffCodec/outputs/0828_glb_condft_3kb_8_final_samples/300_x_scale_sample_1.0.wav --output_dir /home/hy17/Projects/DiffCodec/outputs/
+
+0910_glb_condft_3kb_8542
+
+python run_predict.py --mode predict_dir --pretrained_model weights/nisqa.tar --data_dir /home/hy17/Projects/DiffCodec/outputs/0910_glb_condft_3kb_8542 --num_workers 0 --bs 10 --output_dir /home/hy17/Projects/DiffCodec/outputs/

@@ -25,3 +25,4 @@ from .seanet import SEANetEncoder, SEANetDecoder
 from .unet import Unet1D
 from .unet2d import UNet2D
 from .transformer import TransformerDDPM
+from .transformer_discrete import Transformer
