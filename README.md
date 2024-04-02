@@ -26,6 +26,7 @@ Librispeech
 ## Pretrained Checkpoints:
 We provided pretrained 16khz EnCodec and LaDiffCodec at 1.5kbps and 3kbps at [link](https://indiana-my.sharepoint.com/:f:/g/personal/hy17_iu_edu/Eo9tTiag-u9JtkswVUr5wWIBKrA6hyEJx-TTF2USOGsSVQ?e=MDPijk).
 The downsampling rate of the provided LaDiffCodec is 8.
+
 To use the pretrained models - 
 - 3kbps
   
