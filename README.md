@@ -29,10 +29,11 @@ The downsampling rate of the provided LaDiffCodec is 8.
 To use the pretrained models - 
 - 3kbps
   
-<code>python -m srcs.sample --seq_len_p_sec 3.2 --rep_dims 128 --diff_dims 256 --enc_ratios 8 --cond_enc_ratios 8 5 4 2 --model_for_cond 'EnCodec_libri_3kb/model_best.amlt' --model_path 'Ladiff_3kb_8/model_best.amlt' --run_diff --seq_length 320 --scaling_global --cond_quantization --cond_bandwidth 3 --unet_scale_cond --upsampling_ratios 5 4 2 </code>
+<code>python -m srcs.sample --model_for_cond 'EnCodec_libri_3kb/model_best.amlt' --model_path 'Ladiff_3kb_8/model_best.amlt' --run_diff --scaling_global --cond_quantization --cond_bandwidth 3 --unet_scale_cond --input_dir [INPUT_DIR] --output_dir [OUTPUT_DIR] </code>
+
 - 1.5kbps
   
-<code>python -m srcs.sample --seq_len_p_sec 3.2 --rep_dims 128 --diff_dims 256 --enc_ratios 8 --cond_enc_ratios 8 5 4 2 --model_for_cond 'EnCodec_libri_1_5kb/model_best.amlt' --model_path 'Ladiff_1_5kb_8/model_best.amlt' --run_diff --seq_length 320 --scaling_global --cond_quantization --cond_bandwidth 1.5 --unet_scale_cond --upsampling_ratios 5 4 2 </code>
+<code>python -m srcs.sample --model_for_cond 'EnCodec_libri_1_5kb/model_best.amlt' --model_path 'Ladiff_1_5kb_8/model_best.amlt' --run_diff --scaling_global --cond_quantization --cond_bandwidth 1.5 --unet_scale_cond --input_dir [INPUT_DIR] --output_dir [OUTPUT_DIR] </code>
 
 ## Training steps
 ### 1. Pre-train Codec (Discrete autoencoder)
