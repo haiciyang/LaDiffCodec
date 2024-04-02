@@ -37,9 +37,6 @@ joblib==1.2.0
 julius==0.2.7
 kiwisolver==1.4.4
 kmeans-pytorch==0.3
-
-
-
 labml==0.4.162
 labml-helpers==0.4.89
 labml-nn==0.4.133
@@ -54,7 +51,7 @@ mir-eval==0.7
 msgpack==1.0.5
 multidict==6.0.4
 numba==0.56.4
-numpy==1.24.2
+numpy
 nvidia-cublas-cu11==11.10.3.66
 nvidia-cuda-nvrtc-cu11==11.7.99
 nvidia-cuda-runtime-cu11==11.7.99
@@ -97,10 +94,7 @@ torch==1.13.1
 torch-optimizer==0.1.0
 torch-stoi==0.1.2
 torchaudio==0.13.1
-torchdata==0.6.0
 torchmetrics==0.7.3
-torchtext==0.15.1
-torchvision==0.14.1
 tqdm==4.64.1
 typing-extensions==4.5.0
 urllib3==1.26.14

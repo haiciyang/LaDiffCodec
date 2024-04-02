@@ -9,6 +9,7 @@ import argparse
 import numpy as np
 from tqdm import tqdm
 from pesq import pesq
+from pesq import pesq
 from scipy.io import wavfile
 from collections import OrderedDict
 from matplotlib import pyplot as plt
@@ -28,6 +29,7 @@ from torch.utils.data.distributed import DistributedSampler
 
 # from ema_pytorch import EMA
 from .utils import EMA, save_img, save_plot, save_torch_wav, load_model, nn_parameters
+from .model import DiffAudioRep, DiffAudioTime
 from .model import DiffAudioRep, DiffAudioTime
 from .dataset import EnCodec_data
 from .dataset_libri import Dataset_Libri
@@ -168,6 +170,8 @@ if __name__ == '__main__':
 
     parser.add_argument('--scaling_frame', dest='scaling_frame', action='store_true')
     parser.add_argument('--scaling_feature', dest='scaling_feature', action='store_true')
+    parser.add_argument('--scaling_global', dest='scaling_global', action='store_true')
+    parser.add_argument('--scaling_dim', dest='scaling_dim', action='store_true')
     parser.add_argument('--scaling_global', dest='scaling_global', action='store_true')
     parser.add_argument('--scaling_dim', dest='scaling_dim', action='store_true')
 

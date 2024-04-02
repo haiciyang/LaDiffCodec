@@ -76,6 +76,7 @@ class DiffAudioRep(nn.Module):
         if run_diff:
             if model_type == 'unet':
                 self.diff_model = Unet1D(dim = diff_dims, dim_mults=(1, 2, 2, 4, 4), inp_channels=rep_dims, self_condition=self_condition, qtz_condition=qtz_condition, other_cond=other_cond, use_film=use_film, scaling_frame=scaling_frame, scaling_feature=scaling_feature, scaling_global=scaling_global, scaling_dim=scaling_dim, cond_global=cond_global, cond_channels=cond_channels, upsampling_ratios=upsampling_ratios, unet_scale_x=unet_scale_x, unet_scale_cond=unet_scale_cond)
+                self.diff_model = Unet1D(dim = diff_dims, dim_mults=(1, 2, 2, 4, 4), inp_channels=rep_dims, self_condition=self_condition, qtz_condition=qtz_condition, other_cond=other_cond, use_film=use_film, scaling_frame=scaling_frame, scaling_feature=scaling_feature, scaling_global=scaling_global, scaling_dim=scaling_dim, cond_global=cond_global, cond_channels=cond_channels, upsampling_ratios=upsampling_ratios, unet_scale_x=unet_scale_x, unet_scale_cond=unet_scale_cond)
                 
             elif model_type == 'transformer':
                 self.diff_model = TransformerDDPM(rep_dims = rep_dims,
@@ -205,6 +206,8 @@ class DiffAudioRep(nn.Module):
             # ****** only for encodec_tanh *******
             # qtz_loss.detach()
             # x_hat = self.decoder(x_rep)
+
+        neg_loss = sdr_loss(x, x_hat).mean()
 
         neg_loss = sdr_loss(x, x_hat).mean()
         # neg_loss = sdr_loss(x, x_hat).mean()

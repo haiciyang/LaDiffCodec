@@ -12,6 +12,7 @@ good_models/
 *.pyc
 srcs/__pycache__/
 srcs/bigRedScript.txt
+<<<<<<< HEAD
 srcs/sample_from_valid_data.py
 srcs/sample_unet2d
 *.npy
@@ -30,3 +31,8 @@ srcs/train_dac_discrete.py
 srcs/train_for_global_features.py
 *.pdf
 **/__pycache__/
+=======
+dac/
+borrow_srcs/
+.gitignore
+>>>>>>> df549bb0f02af7fcc278a77f2b6861f957ba700c
