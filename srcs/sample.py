@@ -89,7 +89,7 @@ def synthesis(inp_args):
 
     model_for_cond = None
     if inp_args.model_for_cond:
-        model_for_cond = DiffAudioRep(rep_dims=inp_args.rep_dims, emb_dims=inp_args.emb_dims, n_residual_layers=inp_args.n_residual_layers, n_filters=inp_args.n_filters, lstm=inp_args.lstm, quantization=inp_args.cond_quantization, bandwidth=inp_args.cond_bandwidth, ratios=inp_args.cond_enc_ratios, final_activation=inp_args.final_activation).to(device) # An autoencoder
+        model_for_cond = DiffAudioRep(rep_dims=inp_args.rep_dims, emb_dims=inp_args.emb_dims, n_residual_layers=inp_args.n_residual_layers, n_filters=inp_args.n_filters, lstm=inp_args.lstm, quantization=True, bandwidth=inp_args.cond_bandwidth, ratios=inp_args.cond_enc_ratios, final_activation=inp_args.final_activation).to(device) # An autoencoder
         load_model(model_for_cond, inp_args.model_for_cond)
         model_for_cond.eval()
 
@@ -172,8 +172,6 @@ if __name__ == '__main__':
     parser.add_argument('--scaling_feature', dest='scaling_feature', action='store_true')
     parser.add_argument('--scaling_global', dest='scaling_global', action='store_true')
     parser.add_argument('--scaling_dim', dest='scaling_dim', action='store_true')
-    parser.add_argument('--scaling_global', dest='scaling_global', action='store_true')
-    parser.add_argument('--scaling_dim', dest='scaling_dim', action='store_true')
 
     parser.add_argument('--sampling_timesteps', type=int, default=1000)
     parser.add_argument('--use_film', dest='use_film', action='store_true')
@@ -182,7 +180,7 @@ if __name__ == '__main__':
     parser.add_argument('--model_for_cond', type=str, default='')
     parser.add_argument('--upsampling_ratios', nargs='+', type=int, default=[5,4,2])
     parser.add_argument('--cond_enc_ratios', nargs='+', type=int, default=[8,5,4,2])
-    parser.add_argument('--cond_quantization', dest='cond_quantization', action='store_true')
+    # parser.add_argument('--cond_quantization', dest='cond_quantization', action='store_true')
     parser.add_argument('--cond_bandwidth', type=float, default=3.0)
     parser.add_argument('--cond_global', type=float, default=3.0)
 

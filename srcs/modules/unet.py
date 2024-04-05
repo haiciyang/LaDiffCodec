@@ -294,6 +294,7 @@ class Unet1D(nn.Module):
         self.unet_scale_x = unet_scale_x
 
         input_channels = inp_channels * (2 if self_condition or qtz_condition or other_cond else 1)
+        
         # input_channels = inp_channels * (2 if (self_condition or qtz_condition or other_cond) and not self.use_film else 1)
         if other_cond:
             input_channels = inp_channels + cond_channels # for dac input and time input
@@ -367,29 +368,11 @@ class Unet1D(nn.Module):
 
         # ## 
         if other_cond and upsampling_ratios is not None:
-            # # ratios = [8, 5, 4, 2] # for time domain diffusion
-            # # ratios = [8, 4, 2] # for dac
-            # # ratios = [5, 4, 2] # for encodec
-            # ratios = [5, 2] # for 8 4 encodec
-            # # ratios = [2] # for 8 5 4 encodec
             ratios = upsampling_ratios
-            # print(upsampling_ratios)
-            # fake()
-        if other_cond and upsampling_ratios is not None:
-            # # ratios = [8, 5, 4, 2] # for time domain diffusion
-            # # ratios = [8, 4, 2] # for dac
-            # # ratios = [5, 4, 2] # for encodec
-            # ratios = [5, 2] # for 8 4 encodec
-            # # ratios = [2] # for 8 5 4 encodec
-            ratios = upsampling_ratios
-            # print(upsampling_ratios)
-            # fake()
             self.upsampling_layers = nn.ModuleList([])
             for r in ratios:
-                # self.upsampling_layers.append(nn.ConvTranspose1d(dim//2, dim//2, kernel_size = r*2, stride=r))
                 self.upsampling_layers.append(
                     SConvTranspose1d(cond_channels, cond_channels, kernel_size = r*2, stride=r, causal=False, trim_right_ratio=True))
-                    # SConvTranspose1d(dim//2, dim//2, kernel_size = r*2, stride=r, causal=False, trim_right_ratio=True))
 
     def scaling(self, x_rep, global_max=1):
 
