@@ -29,8 +29,7 @@ from torch.utils.data.distributed import DistributedSampler
 
 # from ema_pytorch import EMA
 from .utils import EMA, save_img, save_plot, save_torch_wav, load_model, nn_parameters
-from .model import DiffAudioRep, DiffAudioTime
-from .model import DiffAudioRep, DiffAudioTime
+from .model import FeatureLearner, DiffAudioRep, DiffAudioTime
 from .dataset import EnCodec_data
 from .dataset_libri import Dataset_Libri
 from .losses import sdr_loss
@@ -87,9 +86,9 @@ def synthesis(inp_args):
     load_model(model, inp_args.model_path, strict=True)
     model.eval()
 
-    model_for_cond = None
+    discrete_featureLearner = None # A codec
     if inp_args.model_for_cond:
-        model_for_cond = DiffAudioRep(rep_dims=inp_args.rep_dims, emb_dims=inp_args.emb_dims, n_residual_layers=inp_args.n_residual_layers, n_filters=inp_args.n_filters, lstm=inp_args.lstm, quantization=True, bandwidth=inp_args.cond_bandwidth, ratios=inp_args.cond_enc_ratios, final_activation=inp_args.final_activation).to(device) # An autoencoder
+        model_for_cond = FeatureLearner(rep_dims=inp_args.rep_dims, emb_dims=inp_args.emb_dims, n_residual_layers=inp_args.n_residual_layers, n_filters=inp_args.n_filters, lstm=inp_args.lstm, quantization=True, bandwidth=inp_args.cond_bandwidth, ratios=inp_args.cond_enc_ratios, final_activation=inp_args.final_activation).to(device) # An autoencoder
         load_model(model_for_cond, inp_args.model_for_cond)
         model_for_cond.eval()
 
@@ -180,7 +179,6 @@ if __name__ == '__main__':
     parser.add_argument('--model_for_cond', type=str, default='')
     parser.add_argument('--upsampling_ratios', nargs='+', type=int, default=[5,4,2])
     parser.add_argument('--cond_enc_ratios', nargs='+', type=int, default=[8,5,4,2])
-    # parser.add_argument('--cond_quantization', dest='cond_quantization', action='store_true')
     parser.add_argument('--cond_bandwidth', type=float, default=3.0)
     parser.add_argument('--cond_global', type=float, default=3.0)
 

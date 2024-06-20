@@ -9,28 +9,23 @@ from collections import OrderedDict
 from matplotlib import pyplot as plt
 
 
-# def logging(epoch, loss_dict, time, exp_name, vall, mark):
-
-
-#     result_path = '../logs/'+ exp_name +'.txt'
-#     loss_rec = ' | '.join([ f"{key}: {value:.3f}" for key, value in loss_dict.items()])
-
-#     records = f'Epoch: {epoch} | {loss_rec} | Best: {vall:.3f} | Duration: {time:.1f} ({mark}) \n'
-    
-#     with open(result_path, 'a+') as file:
-#         file.write(records)
-#         file.flush()
-
-
 def nn_parameters(model):
     
-    pp=0
-    for p in list(model.parameters()):
-        nn=1
-        for s in list(p.size()):
-            nn = nn*s
-        pp += nn
-    return pp
+    # pp=0
+    # for p in list(model.parameters()):
+    #     nn=1
+    #     for s in list(p.size()):
+    #         nn = nn*s
+    #     pp += nn
+    
+    trainable = sum(p.numel() for p in model.parameters() if p.requires_grad)
+    nontrainable = sum(p.numel() for p in model.parameters() if not p.requires_grad)
+    
+    total = trainable + nontrainable
+    # trainable = 
+    # print(list(model.parameters())[0].requires_grad)
+    
+    return total, trainable
 
 
 def save_img(rep, name, note, out_path=''):
@@ -95,7 +90,7 @@ def save_checkpoints(model, output_dir, exp_name, ema=None, disc=None, note=''):
         torch.save(disc.state_dict(), f'{output_dir}/{exp_name}/disc_{note}.amlt')
 
 
-def load_model(model, model_path, strict=True):
+def load_from_checkpoint(model, model_path, strict=True):
 
     state_dict = torch.load(model_path)
     model_dict = OrderedDict()
@@ -111,6 +106,9 @@ def load_model(model, model_path, strict=True):
 
 def logging(step, tr_loss_dict, val_loss_dict, time, exp_name, vall):
 
+    if not os.path.exists('logs/'):
+        os.mkdir('logs/')
+        
     result_path = 'logs/'+ exp_name +'.txt'
 
     tr_loss_rec = ' | '.join([ f"tr_{key}: {value:.3f}" for key, value in tr_loss_dict.items()])
@@ -125,6 +123,9 @@ def logging(step, tr_loss_dict, val_loss_dict, time, exp_name, vall):
 
 def log_params(params_dict, exp_name):
 
+    if not os.path.exists('logs/'):
+        os.mkdir('logs/')
+        
     result_path = 'logs/'+ exp_name +'.txt'
 
     with open(result_path, 'a+') as file:
@@ -132,38 +133,6 @@ def log_params(params_dict, exp_name):
             print(key, value)
             file.write('%s %s\n'%(key, value))
             file.flush()
-
-
-def checkpoint(debugging, step, batch_id, duration, model_label, state_dict, train_loss, valid_loss, min_loss):
-
-    result_path = '../results/'+ model_label +'.txt'
-    if not os.path.exists('../saved_models/'+model_label):
-        os.mkdir('../saved_models/'+model_label)
-    
-    model_path = '../saved_models/'+ model_label + '/' + model_label + '_' +str(step) 
-
-    if state_dict is not None: # when an step is finished
-        records = 'Step: {} | time: {:.2f} | train_loss: {:.4f} | valid_loss: {:.4f} \n'.format(step, duration, train_loss, valid_loss)
-        if valid_loss < min_loss:
-            min_loss = valid_loss
-        if not debugging:
-            if len(state_dict) == 2: # Save frame and sample predictive model respectively
-                torch.save(state_dict[0], model_path + '_f.pth')
-                torch.save(state_dict[1], model_path + '_s.pth')
-            else:
-                torch.save(state_dict, model_path + '.pth')
-        
-    else:
-        records = 'Step: {} | step: {} | time: {:.2f} | train_loss: {:.4f} \n'.format(step, batch_id, duration, train_loss)
-    
-    print(records)
-    if not debugging:
-        with open(result_path, 'a+') as file:
-            file.write(records)
-            file.flush()
-
-    return min_loss
-
 
 
 def exists(val):

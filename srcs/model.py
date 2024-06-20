@@ -1,6 +1,7 @@
 import math
-
 import torch
+import random
+
 from torch import nn
 
 from .quantization import ResidualVectorQuantizer
@@ -29,99 +30,83 @@ def reshape_to_3dim(x):
     else:
         raise ValueError('Input has an unexpected shape:', x.shape)
 
+class FeatureLearner(nn.Module):
+
+    def __init__(self, quantization=False, target_bandwidths=[1.5, 3, 6, 9, 12], **base_kwargs):
+        super(). __init__()
+
+        self.quantization = quantization
+        self.sample_rate = base_kwargs['sample_rate'] 
+        self.target_bandwidths = target_bandwidths
+        
+        self.encoder = SEANetEncoder(channels=1, kernel_size=7, last_kernel_size=7, **base_kwargs)
+        self.decoder = SEANetDecoder(channels=1, kernel_size=7, last_kernel_size=7, **base_kwargs) 
+        
+        if quantization:
+            print('bandwidth:', target_bandwidths)
+
+            self.frame_rate = self.sample_rate/self.encoder.hop_length
+            n_q = int(1000 * target_bandwidths[-1] // (math.ceil(self.frame_rate) * 10)) # Total number of quantizer needed
+            self.quantizer = ResidualVectorQuantizer(dimension=base_kwargs['rep_dims'], n_q=n_q)
+
+    def forward(self, x, bandwidth=None):
+        
+        x_rep = self.encoder(x)
+        
+        bandwidth = self.target_bandwidths[random.randint(0, len(self.target_bandwidths)-1)] if bandwidth is None else bandwidth
+        
+        if self.quantization:
+            quantizedResults = self.quantizer(x_rep, sample_rate=self.frame_rate, bandwidth=bandwidth)
+            x_rep = quantizedResults.quantized
+            qtz_loss = quantizedResults.penalty
+            
+        x_hat = self.decoder(x_rep)
+        neg_sdr = sdr_loss(x, x_hat).mean()
+        
+        if self.quantization:
+            tot_loss = neg_sdr + qtz_loss
+            return {'tot_loss': tot_loss, 'neg_sdr': neg_sdr, "qtz_loss": qtz_loss}, x_hat
+        else:
+            return {'neg_sdr': neg_sdr}, x_hat
+
+
+    def get_feature(self, x, bandwidth=None):
+        
+        x_rep = self.encoder(x)
+        if self.quantization:
+            bandwidth = self.target_bandwidths[random.randint(0, len(self.target_bandwidths)-1)] if bandwidth is None else bandwidth
+            quantizedResults = self.quantizer(x_rep, sample_rate=self.frame_rate, bandwidth=bandwidth)
+            x_rep = quantizedResults.quantized
+        
+        return x_rep
 
 class DiffAudioRep(nn.Module):
-
-    def __init__(self, rep_dims=128, emb_dims=128, diff_dims=128, norm: str='weight_norm', causal: bool=True, dilation_base=2, n_residual_layers=1, n_filters=32, lstm=0, quantization=False, bandwidth=3, sample_rate=16000, qtz_condition=False, self_condition=False, other_cond=False, seq_length=320, enc_ratios=[8, 5, 4, 2], run_diff=False, run_vae=False, model_type='', scaling_frame=False, scaling_feature=False, scaling_global=False, scaling_dim=False, freeze_ed=False, final_activation=None, sampling_timesteps=None, use_film=False, cond_global=1, cond_channels=128, upsampling_ratios=[5, 4, 2], unet_scale_x = False, unet_scale_cond = True, **kwargs):
+    def __init__(self, quantization=False, self_condition=False, other_cond=False, seq_length=320, ratios=[8],scaling_frame=False, scaling_feature=False, scaling_global=False, scaling_dim=False, sampling_timesteps=None, cond_global=1, cond_channels=128, upsampling_ratios=[5, 4, 2], unet_scale_x = False, unet_scale_cond = True, cond_bandwidth=3, **base_kwargs):
 
         super(). __init__()
 
         self.quantization = quantization
-        self.qtz_condition = qtz_condition
-        self.sample_rate = sample_rate
-        self.bandwidth = bandwidth
+        self.cond_bandwidth = cond_bandwidth
+        
+        ENCODEC_RATIO = [8, 5, 4, 2]
 
-        self.run_diff = run_diff
-        self.run_vae = run_vae
-        self.model_type = model_type
+        self.continuous_AE = FeatureLearner(quantization=False, ratios=ratios, **base_kwargs).eval() # Learn discrete features
+        self.discrete_AE = FeatureLearner(quantization=True, ratios=ENCODEC_RATIO, **base_kwargs).eval()
+        self.continuous_AE.requires_grad_(False)
+        self.discrete_AE.requires_grad_(False)
+
+        
         self.scaling_frame = scaling_frame
         self.scaling_feature = scaling_feature
         self.scaling_global = scaling_global
         self.scaling_dim = scaling_dim
         self.cond_global = cond_global
-
-        self.encoder = SEANetEncoder(channels=1, ratios=enc_ratios,\
-            dimension=rep_dims, norm=norm, causal=causal, dilation_base=dilation_base, n_residual_layers=n_residual_layers, n_filters=n_filters, lstm=lstm, kernel_size=7, last_kernel_size=7, final_activation=final_activation)
-        self.decoder = SEANetDecoder(channels=1, ratios=enc_ratios, \
-            dimension=rep_dims, norm=norm, causal=causal, dilation_base=dilation_base, n_residual_layers=n_residual_layers, n_filters=n_filters, lstm=lstm, kernel_size=7, last_kernel_size=7) 
+        self.unet_scale_x = unet_scale_x
         
-        if run_vae:
-            self.vae_mu_conv = nn.Conv1d(rep_dims//2, rep_dims, 1)
-            self.vae_logvar_conv = nn.Conv1d(rep_dims//2, rep_dims, 1)
+        diff_backbone = Unet1D(dim = base_kwargs['diff_dims'], dim_mults=(1, 2, 2, 4, 4), inp_channels=base_kwargs['rep_dims'], self_condition=self_condition, other_cond=other_cond, scaling_frame=scaling_frame, scaling_feature=scaling_feature, scaling_global=scaling_global, scaling_dim=scaling_dim, cond_global=cond_global, cond_channels=cond_channels, upsampling_ratios=upsampling_ratios, unet_scale_x=unet_scale_x, unet_scale_cond=unet_scale_cond)
 
-        if quantization:
-            print('bandwidth:', bandwidth)
+        self.diffusion = GaussianDiffusion1D(model=diff_backbone, seq_length=seq_length, sampling_timesteps=sampling_timesteps)              
 
-            self.frame_rate = self.sample_rate/self.encoder.hop_length
-            n_q = int(1000 * bandwidth // (math.ceil(self.frame_rate) * 10))
-            self.quantizer = ResidualVectorQuantizer(dimension=rep_dims, n_q=n_q)
-        
-        if freeze_ed:
-            self.encoder.eval()
-            self.decoder.eval()
-        
-        # if self.freeze_e_only:
-        #     self.encoder.eval()
-            
-        if run_diff:
-            if model_type == 'unet':
-                self.diff_model = Unet1D(dim = diff_dims, dim_mults=(1, 2, 2, 4, 4), inp_channels=rep_dims, self_condition=self_condition, qtz_condition=qtz_condition, other_cond=other_cond, use_film=use_film, scaling_frame=scaling_frame, scaling_feature=scaling_feature, scaling_global=scaling_global, scaling_dim=scaling_dim, cond_global=cond_global, cond_channels=cond_channels, upsampling_ratios=upsampling_ratios, unet_scale_x=unet_scale_x, unet_scale_cond=unet_scale_cond)
-                self.diff_model = Unet1D(dim = diff_dims, dim_mults=(1, 2, 2, 4, 4), inp_channels=rep_dims, self_condition=self_condition, qtz_condition=qtz_condition, other_cond=other_cond, use_film=use_film, scaling_frame=scaling_frame, scaling_feature=scaling_feature, scaling_global=scaling_global, scaling_dim=scaling_dim, cond_global=cond_global, cond_channels=cond_channels, upsampling_ratios=upsampling_ratios, unet_scale_x=unet_scale_x, unet_scale_cond=unet_scale_cond)
-                
-            elif model_type == 'transformer':
-                self.diff_model = TransformerDDPM(rep_dims = rep_dims,
-                                            emb_dims = emb_dims, 
-                                            mlp_dims= diff_dims,
-                                            num_layers= 6,
-                                            num_heads= 8,
-                                            num_mlp_layers=2,
-                                            self_condition=self_condition, 
-                                            qtz_condition=qtz_condition)
-            elif model_type == 'unet2d':
-                self.diff_model = UNet2D(
-                    inp_channels=1,
-                    n_channels=diff_dims,
-                    ch_mults=[1, 2, 2, 4],
-                    is_attn=[False, False, False, True],
-                    self_condition=self_condition, 
-                    qtz_condition=qtz_condition
-                ).to(device)
-
-            else:
-                print('Model type undefined')
-
-            if model_type == 'unet2d':
-                self.diffusion = DenoiseDiffusion(
-                    eps_model=self.diff_model,
-                    n_steps=1_000,
-                    device=device,
-                )
-            else:
-                self.diffusion = GaussianDiffusion1D(model=self.diff_model, seq_length=seq_length, sampling_timesteps=sampling_timesteps)
-            
-
-    def vae(self, rep):
-        
-        Bt, C, F = rep.shape
-        mu = self.vae_mu_conv(rep[:, :C//2, :])
-        logvar = self.vae_logvar_conv(rep[:, C//2:, :])
-
-        noise = torch.randn_like(mu)
-        rep = mu + torch.exp(logvar) * noise
-
-        prior_loss = prior_loss_fn(mu, logvar)
-
-        return rep, prior_loss
 
     def scaling(self, x_rep, global_max=1):
 
@@ -145,170 +130,77 @@ class DiffAudioRep(nn.Module):
             x_rep = x_rep / scale
 
         return x_rep, scale
-
-
-    def forward(self, x, t=None, cond=None):  
-        
-        # ==== Run Latent Diffusion =====
-
-        # if model_ed is None:
-        #     encoder = self.encoder
-        #     decoder = self.decoder
-        # else:
-        #     model_ed.eval()
-        #     encoder = model_ed.encoder
-        #     decoder = model_ed.decoder
     
-        x_rep = self.encoder(x)
-
-        x_rep_qtz = None
-        if self.quantization:
-            quantizedResults = self.quantizer(x_rep, sample_rate=self.frame_rate, bandwidth=self.bandwidth)
-            x_rep_qtz = quantizedResults.quantized
-            qtz_loss = quantizedResults.penalty
-        # --- VAE model --- 
-        if self.run_vae:
-            x_rep, prior_loss = self.vae(x_rep)
-
-        # --- Diffusion Loss --- 
-
-        if self.run_diff:
-
-            B, C, L = x_rep.shape
-
-            x_rep, scale = self.scaling(x_rep, global_max=18.0)
-                
-            if self.model_type == 'unet2d':
-                x_rep = reshape_to_4dim(x_rep)
-                diff_loss, predicted_x_start, *other_reps_from_diff = self.diffusion.loss(x_rep, t=t) # condition on training or only on sampling
-                in_dec = predicted_x_start.squeeze(1) * scale if scale is not None else predicted_x_start.squeeze(1)
-                x_hat = self.decoder(in_dec)
-            else:
-                x_rep = reshape_to_3dim(x_rep)
-                if cond is not None: # Conditions from a different model
-                    # cond, _ = self.scaling(cond, global_max=self.cond_global)
-                    # cond, _ = self.scaling(cond)
-                    diff_loss, predicted_x_start, *other_reps_from_diff = self.diffusion(x_rep.detach(), cond, t=t) 
-                elif self.qtz_condition:
-                    diff_loss, predicted_x_start, *other_reps_from_diff = self.diffusion(x_rep, x_rep_qtz, t=t) 
-                    # condition on training or only on sampling
-                else:
-                    diff_loss, predicted_x_start, *other_reps_from_diff = self.diffusion(x_rep.detach(), t=t)
-
-                in_dec = predicted_x_start * scale if scale is not None else predicted_x_start
-                x_hat = self.decoder(in_dec)
-
-        else:
-            in_dec = x_rep_qtz if self.quantization else x_rep
-            # # with torch.no_grad():
-            x_hat = self.decoder(in_dec)
-
-            # ****** only for encodec_tanh *******
-            # qtz_loss.detach()
-            # x_hat = self.decoder(x_rep)
-
-        neg_loss = sdr_loss(x, x_hat).mean()
-
-        neg_loss = sdr_loss(x, x_hat).mean()
-        # neg_loss = sdr_loss(x, x_hat).mean()
-        # tot_loss = 0.01 * neg_loss + diff_loss
-
-        # ==== Run Diffusion on time-domain ======
-
-        # diff_loss, x_hat, xt, t = self.diffusion(x, None, t) # condition on training or only on 
-        # neg_loss = sdr_loss(x, x_hat.detach()).mean()
-
-        # ==== Output losses ==== 
-        if self.run_diff:
-            # return {'diff_loss': diff_loss}
-            # return {'diff_loss': diff_loss, 'neg_loss': neg_loss}, x_hat, xt, t
-            return {'diff_loss': diff_loss, 'neg_loss': neg_loss}, x_hat, x_rep, predicted_x_start, *other_reps_from_diff, x_rep_qtz, scale
-            # return {'tot_loss': tot_loss, 'diff_loss': diff_loss, 'neg_loss': neg_loss}, x_hat, x_rep, predicted_x_start, *other_reps_from_diff, x_rep_qtz
-        if self.run_vae:
-            tot_loss = 0.1 * prior_loss + neg_loss
-            return {'total_loss': tot_loss, 'prior_loss': prior_loss, 'neg_sdr': neg_loss}, x_hat
-        else:
-            # return {'neg_sdr': neg_loss}, x_hat
-            if not self.quantization: # and not self.training:
-                return {'neg_sdr': neg_loss}, x_hat
-            else:
-                tot_loss = qtz_loss + neg_loss
-                # return {'neg_sdr': neg_loss}, x_hat
-                return {'tot_loss': tot_loss, 'qtz_loss': qtz_loss, 'neg_sdr': neg_loss}, x_hat
-
     def get_cond(self, x):
+        return self.discrete_AE.get_feature(x, bandwidth=self.cond_bandwidth)
+    
+    def get_rep(self, x):
+        x_rep = self.continuous_AE.get_feature(x)
+        x_rep, scale = self.scaling(x_rep, global_max=18.0)
+        return x_rep, scale
+    
+    def decode(self, rep):
+        return self.continuous_AE.decoder(rep)
+        # x_hat = self.discrete_AE.decoder(in_dec) # learn discrete features
+
+    def forward(self, x, t=None):  
+        
+        # with torch.no_grad():
+        #     cond = self.discrete_AE.get_feature(x, bandwidth=self.cond_bandwidth)
+        #     x_rep = self.continuous_AE.get_feature(x)  
+        #     # x_rep = self.discrete_AE.get_feature(x, bandwidth=12) # learn discrete features
+            
+        # # if not self.unet_scale_x:
+        # x_rep, scale = self.scaling(x_rep, global_max=18.0)
         
         with torch.no_grad():
-            x_rep = self.encoder(x)
-            if self.quantization:
-                quantizedResults = self.quantizer(x_rep, sample_rate=self.frame_rate, bandwidth=self.bandwidth)
-                x_rep = quantizedResults.quantized
+            cond = self.get_cond(x)
+            rep, scale = self.get_rep(x)
+            
+        rep = reshape_to_3dim(rep)
+        diff_loss, predicted_x_start, *other_reps_from_diff = self.diffusion(rep.detach(), cond, t=t) 
+
+        in_dec = predicted_x_start * scale if scale is not None else predicted_x_start
         
-        return x_rep
+        with torch.no_grad():
+            x_hat = self.decode(in_dec)
+            # x_hat = self.continuous_AE.decoder(in_dec)
+
+        neg_sdr = sdr_loss(x, x_hat).mean()
+        
+        return {'diff_loss': diff_loss, 'neg_sdr': neg_sdr}, x_hat, rep, predicted_x_start, *other_reps_from_diff, scale
+
+    @torch.no_grad()
+    def sample(self, x, seq_length, sample_type='', midway_t = 100, lam = 0.1):
+        
+        midway_t = 100
+        lam = 0.1
+        
+        self.diffusion.seq_length = seq_length
+        
+        with torch.no_grad():
+            cond = self.get_cond(x)
+            _, scale = self.get_rep(x)        
+        
+        # print(x.shape, cond.shape)
+        # fake()
+        
+        # ------ rep diff ----- 
+        
+        # sampled_rep = self.diffusion.sample(batch_size=1, condition=cond)
+        # x_scale_sample = self.continuous_AE.decoder(sampled_rep * scale)
+
+        # ----- Infilling ----
+        infill_img = cond
+        for layer in self.diffusion.model.upsampling_layers:
+            infill_img = layer(infill_img)
+        infill_img = infill_img / torch.max(torch.abs(infill_img.flatten())) + 1e-8
+        sample = self.diffusion.infilling(infill_img = infill_img, condition=cond, midway_t=midway_t, lam=lam)
+        x_sample_infill = self.continuous_AE.decoder(sample * scale)
+        
+        # return x_scale_sample, x_sample_infill   
+        return  x_sample_infill   
     
-    def get_scale(self, x):
-        
-        x_rep = self.encoder(x)
-        x_rep, scale = self.scaling(x_rep, global_max=18.0)
-        
-        return scale
-
-
-class DiffAudioTime(nn.Module):
-
-    def __init__(self, rep_dims=128, emb_dims=128, diff_dims=128, norm: str='weight_norm', causal: bool=True, dilation_base=2, n_residual_layers=1, n_filters=32, lstm=0, quantization=False, bandwidth=3, sample_rate=16000, qtz_condition=False, self_condition=False, other_cond=False, seq_length=320, enc_ratios=[8, 5, 4, 2], run_diff=False, run_vae=False, model_type='', scaling_frame=False, scaling_feature=False, scaling_global=False, scaling_dim=False, freeze_ed=False, final_activation=None, sampling_timesteps=None, use_film=False, cond_global=1, cond_channels=128, upsampling_ratios=[5, 4, 2], unet_scale_x = False, unet_scale_cond = True,  **kwargs):
-
-        super(). __init__()
-
-        self.sample_rate = sample_rate
-        self.bandwidth = bandwidth
-
-        self.model_type = model_type
-        
-
-        if run_diff:
-            if model_type == 'unet':
-                self.diff_model = Unet1D(dim = diff_dims, dim_mults=(1, 2, 2, 4, 4), inp_channels=1, self_condition=self_condition, qtz_condition=qtz_condition, other_cond=other_cond, use_film=use_film, scaling_frame=scaling_frame, scaling_feature=scaling_feature, scaling_global=scaling_global, scaling_dim=scaling_dim, cond_global=cond_global, cond_channels=cond_channels, upsampling_ratios=upsampling_ratios, unet_scale_x=unet_scale_x, unet_scale_cond=unet_scale_cond)
-                
-            elif model_type == 'transformer':
-                self.diff_model = TransformerDDPM(rep_dims = rep_dims,
-                                            emb_dims = emb_dims, 
-                                            mlp_dims= diff_dims,
-                                            num_layers= 6,
-                                            num_heads= 8,
-                                            num_mlp_layers=2,
-                                            self_condition=self_condition, 
-                                            qtz_condition=qtz_condition)
-            elif model_type == 'unet2d':
-                self.diff_model = UNet2D(
-                    inp_channels=1,
-                    n_channels=diff_dims,
-                    ch_mults=[1, 2, 2, 4],
-                    is_attn=[False, False, False, True],
-                    self_condition=self_condition, 
-                    qtz_condition=qtz_condition
-                ).to(device)
-
-            else:
-                print('Model type undefined')
-
-            if model_type == 'unet2d':
-                self.diffusion = DenoiseDiffusion(
-                    eps_model=self.diff_model,
-                    n_steps=1_000,
-                    device=device,
-                )
-            else:
-                self.diffusion = GaussianDiffusion1D(model=self.diff_model, seq_length=seq_length, sampling_timesteps=sampling_timesteps)
-
-
-    def forward(self, x, t=None, cond=None):  
-
-        # ==== Run Diffusion on time-domain ======
-        diff_loss, predicted_x_start, *other_reps_from_diff = self.diffusion(x, cond, t=t) 
-        neg_loss = sdr_loss(x, predicted_x_start.detach()).mean()
-
-        return {'diff_loss': diff_loss, 'neg_loss': neg_loss}, predicted_x_start, *other_reps_from_diff
 
 if __name__ == '__main__':
 

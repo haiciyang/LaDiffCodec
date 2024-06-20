@@ -93,7 +93,7 @@ class SEANetEncoder(nn.Module):
                  norm: str = 'weight_norm', norm_params: tp.Dict[str, tp.Any] = {}, final_activation: tp.Optional[str] = None, 
                  final_activation_params: tp.Optional[dict] = None, kernel_size: int = 7, last_kernel_size: int = 7, 
                  residual_kernel_size: int = 3, dilation_base: int = 2, causal: bool = False,
-                 pad_mode: str = 'reflect', true_skip: bool = False, compress: int = 2, lstm: int = 2):
+                 pad_mode: str = 'reflect', true_skip: bool = False, compress: int = 2, lstm: int = 2, **kwargs):
         super().__init__()
         self.channels = channels
         self.dimension = dimension
@@ -187,7 +187,7 @@ class SEANetDecoder(nn.Module):
                  norm: str = 'weight_norm', norm_params: tp.Dict[str, tp.Any] = {}, kernel_size: int = 7,
                  last_kernel_size: int = 7, residual_kernel_size: int = 3, dilation_base: int = 2, causal: bool = False,
                  pad_mode: str = 'reflect', true_skip: bool = False, compress: int = 2, lstm: int = 2,
-                 trim_right_ratio: float = 1.0):
+                 trim_right_ratio: float = 1.0, **kwargs):
         super().__init__()
         self.dimension = dimension
         self.channels = channels

@@ -258,7 +258,8 @@ class GaussianDiffusion1D(nn.Module):
 
         x_start = None
 
-        for t in tqdm(reversed(range(0, self.num_timesteps)), desc = 'sampling loop time step', total = self.num_timesteps):
+        # for t in tqdm(reversed(range(0, self.num_timesteps)), desc = 'sampling loop time step', total = self.num_timesteps):
+        for t in reversed(range(0, self.num_timesteps)):
             cond = x_start if self.self_condition else condition
             img, x_start = self.p_sample(img, t, cond)
 
@@ -345,7 +346,8 @@ class GaussianDiffusion1D(nn.Module):
 
         offset = offset
 
-        for t in tqdm(reversed(range(0, midway_t)), desc = 'sampling loop time step', total = self.sampling_timesteps):
+        # for t in tqdm(reversed(range(0, midway_t)), desc = 'sampling loop time step', total = self.sampling_timesteps):
+        for t in reversed(range(0, midway_t)):
             
             cond = x_start if self.self_condition else condition
             img, x_start = self.p_sample(img, t, cond)
@@ -441,7 +443,7 @@ class GaussianDiffusion1D(nn.Module):
 
     def forward(self, x, cond=None, t=None, *args, **kwargs):
         b, c, n, device = *x.shape, x.device
-        assert n == self.seq_length, f'seq length must be {self.seq_length}, now is {n}'
+        # assert n == self.seq_length, f'seq length must be {self.seq_length}, now is {n}'
 
         if t is None:
             t = torch.randint(0, self.num_timesteps, (b,), device=device).long()

@@ -329,14 +329,13 @@ class ResidualVectorQuantization(nn.Module):
         all_indices = []
 
         n_q = n_q or len(self.layers)
-
         for layer in self.layers[:n_q]:
             quantized, indices, loss = layer(residual)
             residual = residual - quantized
             quantized_out = quantized_out + quantized
 
             all_indices.append(indices)
-            all_losses.append(loss)
+            all_losses.append(loss)           
 
         out_losses, out_indices = map(torch.stack, (all_losses, all_indices))
         return quantized_out, out_indices, out_losses
