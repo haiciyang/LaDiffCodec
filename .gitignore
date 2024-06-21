@@ -18,5 +18,5 @@ srcs/bar_plot.py
 srcs/*/__pycache__/
 srcs/bigRedScript.txt
 srcs/modules/transformer_discrete.py
-srcs/scripts.txt
+srcs/script.txt
 srcs/**/__pycache__/

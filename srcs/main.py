@@ -118,13 +118,17 @@ def get_model(inp_args):
         model = DiffAudioRep(other_cond=other_cond, **vars(inp_args)).to(device)
     
     if inp_args.discrete_AE:
-        load_from_checkpoint(model.discrete_AE, f'saved_models/{inp_args.discrete_AE}/model_best.amlt', strict=False)
+        # load_from_checkpoint(model.discrete_AE, f'saved_models/{inp_args.discrete_AE}/model_best.amlt', strict=False)
+        load_from_checkpoint(model.discrete_AE, inp_args.discrete_AE)
     if inp_args.continuous_AE:
-        load_from_checkpoint(model.continuous_AE, f'saved_models/{inp_args.continuous_AE}/model_best.amlt')
+        # load_from_checkpoint(model.continuous_AE, f'saved_models/{inp_args.continuous_AE}/model_best.amlt')
+        load_from_checkpoint(model.continuous_AE, inp_args.continuous_AE)
     
     if inp_args.load_model:
-        model_path = f'saved_models/{inp_args.load_model}/model_best.amlt'
+        # model_path = f'saved_models/{inp_args.load_model}/model_best.amlt'
+        model_path = inp_args.load_model
         load_from_checkpoint(model, model_path)
+        
     
     return model.to(device)
 
@@ -189,7 +193,6 @@ def synthesis(inp_args):
                 length = int(inp_args.seq_len_p_sec * sr)
                 wav = wav[:, :, :length]
                 
-            
             length = wav.shape[-1]//640*640
             wav = wav[:, :, :length]
             seq_length = int(wav.shape[-1] / np.prod(inp_args.ratios))
@@ -523,7 +526,7 @@ if __name__ == '__main__':
 
     # Cond model
     # parser.add_argument('--cond_quantization', dest='cond_quantization', action='store_true')
-    parser.add_argument('--target_bandwidths', nargs='+', type=float, default=[1.5,3,6,12])
+    parser.add_argument('--target_bandwidths', nargs='+', type=float, default=[1.5,3,6,9,12])
     parser.add_argument('--cond_bandwidth', type=float, default=None)
     # parser.add_argument('--cond_global', type=float, default=1)
     
