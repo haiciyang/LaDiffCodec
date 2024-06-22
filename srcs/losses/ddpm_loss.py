@@ -205,8 +205,8 @@ class GaussianDiffusion1D(nn.Module):
         posterior_log_variance_clipped = extract(self.posterior_log_variance_clipped, t, x_t.shape)
         return posterior_mean, posterior_variance, posterior_log_variance_clipped
 
-    def model_predictions(self, x, t, x_self_cond = None, clip_x_start = False, rederive_pred_noise = False):
-        model_output = self.model(x, t, x_self_cond)
+    def model_predictions(self, x, t, condition = None, clip_x_start = False, rederive_pred_noise = False):
+        model_output = self.model(x, t, condition)
         maybe_clip = partial(torch.clamp, min = -1., max = 1.) if clip_x_start else identity
 
         if self.objective == 'pred_noise':
@@ -345,7 +345,7 @@ class GaussianDiffusion1D(nn.Module):
 
         offset = offset
 
-        for t in tqdm(reversed(range(0, midway_t)), desc = 'sampling loop time step', total = self.sampling_timesteps):
+        for t in tqdm(reversed(range(0, midway_t)), desc = 'infilling time step', total = midway_t):
             
             cond = x_start if self.self_condition else condition
             img, x_start = self.p_sample(img, t, cond)
@@ -377,7 +377,8 @@ class GaussianDiffusion1D(nn.Module):
             for layer in self.model.upsampling_layers:
                 img = layer(img)
 
-        for i in tqdm(reversed(range(0, t)), desc = 'half-way sample time step', total = t):
+        # for i in tqdm(reversed(range(0, t)), desc = 'half-way sample time step', total = t):
+        for i in reversed(range(0, t)):
             cond = x_start if self.self_condition else condition
             img, x_start = self.p_sample(img, i, cond)
 

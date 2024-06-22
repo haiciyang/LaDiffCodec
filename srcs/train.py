@@ -232,7 +232,6 @@ if __name__ == '__main__':
     parser.add_argument("--output_dir", type=str, default='saved_models')
     # parser.add_argument("--data_folder_path", type=str, default='/data/hy17/dns_pth/*') # for the dsn data
     parser.add_argument("--data_folder_path", type=str, default='/data/hy17/librispeech/librispeech')
-    parser.add_argument("--n_spks", type=int, default=500)
     parser.add_argument('--seq_len_p_sec', type=float, default=1.) 
     parser.add_argument('--sample_rate', type=int, default=16000)
 
@@ -320,9 +319,6 @@ if __name__ == '__main__':
         # synchronizes all the threads to reach this point before moving on
         dist.barrier()
 
-    # train_dataset = EnCodec_data(inp_args.data_path, task = 'train', seq_len_p_sec = inp_args.seq_len_p_sec, sample_rate=inp_args.sample_rate, multi=False, n_spks = inp_args.n_spks)
-    # valid_dataset = EnCodec_data(inp_args.data_path, task = 'valid', seq_len_p_sec = inp_args.seq_len_p_sec, sample_rate=inp_args.sample_rate, multi=False, n_spks = inp_args.n_spks)
-
     train_dataset = Dataset_Libri(task = 'train', seq_len_p_sec = inp_args.seq_len_p_sec, data_folder_path=inp_args.data_folder_path)
     valid_dataset = Dataset_Libri(task = 'valid', seq_len_p_sec = inp_args.seq_len_p_sec, data_folder_path=inp_args.data_folder_path)
 
@@ -336,8 +332,8 @@ if __name__ == '__main__':
         torch.manual_seed(global_rank)  
         torch.cuda.set_device(gpu_rank)
     else:
-        train_loader = DataLoader(train_dataset, batch_size=inp_args.batch_size, pin_memory=True)
-        valid_loader = DataLoader(valid_dataset, batch_size=inp_args.batch_size, pin_memory=True)
+        train_loader = DataLoader(train_dataset, batch_size=inp_args.batch_size, pin_memory=True, num_workers=4)
+        valid_loader = DataLoader(valid_dataset, batch_size=inp_args.batch_size, pin_memory=True, num_workers=4)
         gpu_rank = 0
     
 
@@ -349,8 +345,8 @@ if __name__ == '__main__':
     disc = MSDisc(filters=32).cuda(gpu_rank) if inp_args.use_disc else None
 
     if inp_args.finetune_model:
-        load_model(model, inp_args.finetune_model + '/model_best.amlt', strict=False)
-        # load_model(model, inp_args.finetune_model + '.amlt', strict=False)
+        # load_model(model, inp_args.finetune_model + '/model_best.amlt', strict=False)
+        load_model(model, inp_args.finetune_model + '.amlt', strict=False)
         if inp_args.use_disc:
             load_model(disc, inp_args.finetune_model + '/disc_best.amlt')
 
@@ -410,12 +406,12 @@ if __name__ == '__main__':
                 # print(val_losses)
                 print([val.item() for val in val_losses.values()])
             else:
-                print(f'Finished training epoch {step}')
+                # print(f'Finished training epoch {step}')
                 if vall < best_loss:
                     best_loss = vall
-                    save_checkpoints(model, ema, disc, inp_args.output_dir, inp_args.exp_name, note='best')
+                    save_checkpoints(model, inp_args.output_dir, inp_args.exp_name, ema, disc, note='best')
                 if step % 100 == 0 and step > 0:
-                    save_checkpoints(model, ema, disc, inp_args.output_dir, inp_args.exp_name, note=str(step))
+                    save_checkpoints(model, inp_args.output_dir, inp_args.exp_name, ema, disc, note=str(step))
 
                 
                 logging(step, tr_losses, val_losses, end_time-start_time, inp_args.exp_name, best_loss)

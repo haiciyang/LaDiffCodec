@@ -46,35 +46,6 @@ def apply_mask(rep, ratio=0.5):
     mask = mask[None,:,:L].to(rep.device)
     return rep * mask
 
-def scaling(x_rep, global_max=1):
-
-    B, C, L = x_rep.shape
-    
-    # scale = None
-    # if self.scaling_frame:
-    #     # ---- Scaling for every frames -----
-    #     scale, _ = torch.max(torch.abs(x_rep), 1, keepdim=True)
-    #     x_rep = x_rep / (scale + 1e-20)
-    # elif self.scaling_feature:
-    #     # print('Scaling on feature map after upsampling.')
-    #     # --- Scaling for the feature map --- 
-    #     scale, _ = torch.max(torch.abs(x_rep.reshape(B, C * L)), 1, keepdim=True)
-    #     scale = scale.unsqueeze(-1)
-    #     x_rep = x_rep / (scale + 1e-20)
-    # elif self.scaling_global:
-    #     # print('Scaling globally after upsampling.')
-    #     scale = global_max
-    #     x_rep = x_rep / scale
-    # elif self.scaling_dim:
-    #     scale, _ = torch.max(torch.abs(x_rep), -1, keepdim=True)
-    #     x_rep = x_rep / scale
-    
-    # ---- Condition features only do feature-level scalig ---- 
-    scale, _ = torch.max(torch.abs(x_rep.reshape(B, C * L)), 1, keepdim=True)
-    scale = scale.unsqueeze(-1)
-    x_rep = x_rep / (scale + 1e-20)
-
-    return x_rep, scale
 
 def synthesis(inp_args):
     
@@ -98,13 +69,23 @@ def synthesis(inp_args):
     midway_t = 100
     lam = 0.1
     with torch.no_grad():
-        for wav_file in glob.glob(os.path.join(inp_args.input_dir, '*.wav')):
-        
-            filename = wav_file.split('/')[-1][:-4]
+        # for wav_file in glob.glob(os.path.join(inp_args.input_dir, '*.wav')):
+        for wav_file in tqdm(glob.glob(os.path.join(inp_args.input_dir, '**/*.wav'), recursive=True)):
+            
+            local_path = wav_file[len(inp_args.input_dir):][:-4]
+            save_path = inp_args.output_dir + local_path
+            # filename = wav_file.split('/')[-1][:-4]
+            
+            output_folder = save_path[: -(len(save_path.split('/')[-1])+1)]
+            if not os.path.exists(output_folder):
+                os.makedirs(output_folder)
             
             wav, sr = torchaudio.load(wav_file)
             wav = torchaudio.functional.resample(wav, orig_freq=sr, new_freq=16000)
             wav = wav.unsqueeze(1).to(torch.float).to(device)
+            
+            length = wav.shape[-1]//640*640
+            wav = wav[:, :, :length]
             
             model.diffusion.seq_length = int(wav.shape[-1] / inp_args.enc_ratios[0])
             
@@ -112,23 +93,48 @@ def synthesis(inp_args):
             if model_for_cond is not None:
                 cond = model_for_cond.get_cond(wav)
             
-            scale = model.get_scale(wav)
+            # scale = model.get_scale(wav)
             
-            # ------ rep diff ----- 
-            sampled_rep = model.diffusion.sample(batch_size=1, condition=cond)
-            x_scale_sample = model.decoder(sampled_rep*scale)
-            torchaudio.save(os.path.join(out_dir, f'{filename}_{inp_args.cond_bandwidth}kb.wav'), x_scale_sample.squeeze(1).cpu(), 16000)
+            # # ------ rep diff ----- 
+            # sampled_rep = model.diffusion.sample(batch_size=1, condition=cond)
+            # x_scale_sample = model.decoder(sampled_rep*scale)
+            # # x_scale_sample = model.decoder(sampled_rep)
+            
+            # x_scale_sample /= torch.std(x_scale_sample.flatten()) + 1e-8
+            # x_scale_sample /= torch.max(torch.abs(x_scale_sample.flatten())) + 1e-8
+            # torchaudio.save(os.path.join(out_dir, f'{filename}_{inp_args.cond_bandwidth}kb.wav'), x_scale_sample.squeeze(1).cpu(), 16000)
 
-            # ----- Infilling ----
-            infill_img = cond
+            # # ----- Infilling ----
+            # infill_img = cond
+            # if inp_args.upsampling_ratios is not None:
+                
+            #     # infill_img = model.diff_model.process_cond(infill_img)
+            #     for layer in model.diff_model.upsampling_layers:
+            #         infill_img = layer(infill_img)
+            
+            # infill_img /= torch.max(torch.abs(infill_img.flatten())) + 1e-8
+            # sample = model.diffusion.infilling(infill_img = infill_img, condition=cond, midway_t=midway_t, lam=lam)
+            # x_sample_infil = model.decoder(sample)
+            
+            # x_sample_infil /= torch.std(x_sample_infil.flatten()) + 1e-8
+            # x_sample_infil /= torch.max(torch.abs(x_sample_infil.flatten())) + 1e-8
+            
+            # torchaudio.save(os.path.join(out_dir, f'{filename}_{inp_args.cond_bandwidth}kb_infill.wav'), x_sample_infil.squeeze(1).cpu(), 16000)
+            
+            # Mid-way
+            img = cond
             if inp_args.upsampling_ratios is not None:
                 for layer in model.diff_model.upsampling_layers:
-                    infill_img = layer(infill_img)
-            infill_img = infill_img / torch.max(torch.abs(infill_img.flatten())) + 1e-8
-            sample = model.diffusion.infilling(infill_img = infill_img, condition=cond, midway_t=midway_t, lam=lam)
-            x_sample_infil = model.decoder(sample)
-
-            torchaudio.save(os.path.join(out_dir, f'{filename}_{inp_args.cond_bandwidth}kb_infill.wav'), x_sample_infil.squeeze(1).cpu(), 16000)
+                    img = layer(img)
+            img /= torch.max(torch.abs(img.flatten())) + 1e-8
+            sample = model.diffusion.halfway_sampling(img = img, condition=cond, t=midway_t)
+            x_sample_mid = model.decoder(sample)
+            
+            x_sample_mid /= torch.std(x_sample_mid.flatten()) + 1e-8
+            x_sample_mid /= torch.max(torch.abs(x_sample_mid.flatten())) + 1e-8
+            
+            torchaudio.save(os.path.join(out_dir, f'{save_path}.wav'), x_sample_mid.squeeze(1).cpu(), 16000)
+            
 
 if __name__ == '__main__':
 

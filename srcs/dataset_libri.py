@@ -56,7 +56,7 @@ class Dataset_Libri(Dataset):
         eps = 1e-10
     
         file_path = self.files[idx] # /media/sdb1/Data/librispeech/train-clean-100/103/1240/103-1240-0000.wav
-        print(file_path)
+        # print(file_path)
         sample_name = file_path.split('/')[-1][:-4] # 103-1240-0000
         
         # -- Load data -- 

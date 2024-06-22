@@ -292,6 +292,8 @@ class Unet1D(nn.Module):
 
         self.unet_scale_cond = unet_scale_cond
         self.unet_scale_x = unet_scale_x
+        
+        self.upsampling_ratios = upsampling_ratios
 
         input_channels = inp_channels * (2 if self_condition or qtz_condition or other_cond else 1)
         
@@ -394,63 +396,41 @@ class Unet1D(nn.Module):
         # elif self.scaling_dim:
         #     scale, _ = torch.max(torch.abs(x_rep), -1, keepdim=True)
         #     x_rep = x_rep / scale
-        # scale = None
-        # if self.scaling_frame:
-        #     # ---- Scaling for every frames -----
-        #     scale, _ = torch.max(torch.abs(x_rep), 1, keepdim=True)
-        #     x_rep = x_rep / (scale + 1e-20)
-        # elif self.scaling_feature:
-        #     # --- Scaling for the feature map --- 
-        #     scale, _ = torch.max(torch.abs(x_rep.reshape(B, C * L)), 1, keepdim=True)
-        #     scale = scale.unsqueeze(-1)
-        #     x_rep = x_rep / (scale + 1e-20)
-        # elif self.scaling_global:
-        #     scale = global_max
-        #     x_rep = x_rep / scale
-        # elif self.scaling_dim:
-        #     scale, _ = torch.max(torch.abs(x_rep), -1, keepdim=True)
-        #     x_rep = x_rep / scale
         
         # ---- Condition features only do feature-level scalig ---- 
-        scale, _ = torch.max(torch.abs(x_rep.reshape(B, C * L)), 1, keepdim=True)
-        scale = scale.unsqueeze(-1)
-        x_rep = x_rep / (scale + 1e-20)
         scale, _ = torch.max(torch.abs(x_rep.reshape(B, C * L)), 1, keepdim=True)
         scale = scale.unsqueeze(-1)
         x_rep = x_rep / (scale + 1e-20)
 
         return x_rep, scale
 
+    def process_cond(self, x_cond):
+        '''
+            Upsample and scaling condition condition
+        '''
+        # Upsampling
+        if self.upsampling_ratios is not None:
+            for layer in self.upsampling_layers:
+                x_cond = layer(x_cond)
+
+        # UNet scaling
+        if self.unet_scale_cond:
+            x_cond, _ = self.scaling(x_cond, global_max=self.cond_global)
+        
+        return x_cond
 
     def forward(self, x, time, x_cond = None):
 
         if self.self_condition:
             x_self_cond = default(x_cond, lambda: torch.zeros_like(x))
             x = torch.cat((x_self_cond, x), dim = 1)
-        
         elif exists(x_cond):
-        
-            if x_cond.shape[-1] < x.shape[-1]:
-                # ratio = x.shape[-1] // x_cond.shape[-1]
-                # x_cond = torch.repeat_interleave(x_cond, ratio, dim=-1)
-                for layer in self.upsampling_layers:
-                    x_cond = layer(x_cond)
-
-
-            if self.unet_scale_cond:
-                x_cond, _ = self.scaling(x_cond, global_max=self.cond_global)
-            if self.unet_scale_x: 
-                x, _ = self.scaling(x, global_max=self.cond_global)
-
-            if self.unet_scale_cond:
-                x_cond, _ = self.scaling(x_cond, global_max=self.cond_global)
-            if self.unet_scale_x: 
-                x, _ = self.scaling(x, global_max=self.cond_global)
-            
+            x_cond = self.process_cond(x_cond)
             if not self.use_film:
                 x = torch.cat((x_cond, x), dim = 1)
-        # print(x.shape)
-        # fake()
+            if self.unet_scale_x: 
+                x, _ = self.scaling(x, global_max=self.cond_global)
+
         x = self.init_conv(x)
         r = x.clone()
 
