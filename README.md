@@ -1,7 +1,7 @@
 # LaDiffCodec
 Open-sourced codes for paper - GENERATIVE DE-QUANTIZATION FOR NEURAL SPEECH CODEC VIA LATENT DIFFUSION (Accepted by ICASSP 2024)
 
-Cite as: <i>Yang, Haici, Inseon Jang, and Minje Kim. "Generative De-Quantization for Neural Speech Codec Via Latent Diffusion." ICASSP 2024-2024 IEEE International Conference on Acoustics, Speech and Signal Processing (ICASSP). IEEE, 2024.</i>
+Cite as: <i> Haici Yang, Inseon Jang, and Minje Kim. "Generative De-Quantization for Neural Speech Codec Via Latent Diffusion." ICASSP 2024-2024 IEEE International Conference on Acoustics, Speech and Signal Processing (ICASSP). IEEE, 2024.</i>
 ## Prerequisites
 ### Environment
 <code> pip -r install requirements.txt </code>
