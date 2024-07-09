@@ -4,7 +4,7 @@ Open-sourced codes for paper - GENERATIVE DE-QUANTIZATION FOR NEURAL SPEECH CODE
 Cite as: <i>Yang, Haici, Inseon Jang, and Minje Kim. "Generative De-Quantization for Neural Speech Codec Via Latent Diffusion." ICASSP 2024-2024 IEEE International Conference on Acoustics, Speech and Signal Processing (ICASSP). IEEE, 2024.</i>
 ## Prerequisites
 ### Environment
-<code> pip -r install requirements.txt </code>
+<code> pip install -r requirements.txt </code>
 ### Data
 Librispeech
 ### Dependencies
