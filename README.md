@@ -49,6 +49,8 @@ The diffusion model is built upon pre-trained EnCodec or DAC codecs.
 | n_filters | feature dimension | 
 | lstm | number of lstm layers | 
 
+#### Examples:
+<code> python -m srcs.train --lr 0.00005 --seq_len_p_sec 2.4 --rep_dims 128 --n_residual_layers 1 --enc_ratios 8 5 4 2 --quantization --bandwidth 1.5 --n_filters 32 --lstm 2 --model_type unet --seq_length 1200 --data_folder_path \[DATA FOLDER\] </code>
 
 ### 2. Pre-train autoencoer (Continuous autoencoder)
 #### Examples:
