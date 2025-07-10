@@ -1,3 +1,10 @@
+sbatch_printout/
+srcs/balancer.py
+srcs/dacdisc.py
+srcs/distrib.py
+srcs/model_2.py
+srcs/train_feature_learner_2.py
+submit.sh
 runs/
 saved_models/
 logs/

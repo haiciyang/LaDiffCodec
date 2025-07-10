@@ -254,12 +254,13 @@ class SConvTranspose1d(nn.Module):
         stride = self.convtr.convtr.stride[0]
         padding_total = kernel_size - stride
 
-        y = self.convtr(x)
+        y = self.convtr(x) # Transposed cnn + norm
 
         # We will only trim fixed padding. Extra padding from `pad_for_conv1d` would be
         # removed at the very end, when keeping only the right length for the output,
         # as removing it here would require also passing the length at the matching layer
         # in the encoder.
+
         if self.causal:
             # Trim the padding on the right according to the specified ratio
             # if trim_right_ratio = 1.0, trim everything from right
@@ -272,3 +273,26 @@ class SConvTranspose1d(nn.Module):
             padding_left = padding_total - padding_right
             y = unpad1d(y, (padding_left, padding_right))
         return y
+
+class UpsampleTranspose1d(nn.Module):
+    """Wrapped module with transposed conv(SConvTranspose1d), and conv (SConv1d kernel=7), and activation function (SiLU)
+    """
+    def __init__(self, in_channels: int, out_channels: int,
+                 kernel_size: int, stride: int = 1, causal: bool = False,
+                 norm: str = 'none', trim_right_ratio: float = 1.,
+                 norm_kwargs: tp.Dict[str, tp.Any] = {}):
+        super().__init__()
+
+        self.trconv = SConvTranspose1d(in_channels, out_channels, kernel_size, stride,
+                                          causal=causal, norm=norm, norm_kwargs=norm_kwargs)
+        self.end_cond = SConv1d(out_channels, out_channels, 7, stride=1,
+                                          causal=causal, norm=norm, norm_kwargs=norm_kwargs)
+        self.activation = nn.SiLU()
+    
+    def forward(self, x):
+
+        x = self.trconv(x)
+        x = self.end_cond(x)
+        x = self.activation(x)
+
+        return x

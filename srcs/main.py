@@ -34,6 +34,7 @@ from .model import DiffAudioRep
 from .dataset_libri import Dataset_Libri
 from .dataset_max import Dataset_Max
 from .msstftd import MultiScaleSTFTDiscriminator as MSDisc
+from .dacdisc import Discriminator as DACDisc
 
 print('All package loaded.')
 
@@ -63,26 +64,24 @@ def run_gen_loss(disc, s, s_hat):
         s = s.reshape(B*C, 1, L)
         s_hat = s_hat.reshape(B*C, 1, L)
 
-    s_disc_r, fmap_r = disc(s) # list of the outputs from each discriminator
-    s_disc_gen, fmap_gen = disc(s_hat)
+    logits_real, fmaps_real = disc(s) # list of the outputs from each discriminator
+    logits_fake, fmaps_fake = disc(s_hat)
 
     # s_disc_r: [3*[batch_size*[1, 309, 65]]]
     # fmap_r: [3*5*torch.Size([64, 32, 59, 513/257/128..])] 5 conv layers, different stride size
-    K = len(fmap_gen)
-    L = len(fmap_gen[0])
+    K = len(fmaps_real)
+    L = len(fmaps_real[0])
 
     l_g = 0
     l_feat = 0
 
-    for d_id in range(len(fmap_r)):
+    for d_id in range(len(fmaps_real)):
 
-        l_g += 1/K * torch.mean(torch.max(torch.tensor(0), 1-s_disc_gen[d_id])) # Gen loss
+        l_g += 1/K * torch.mean(torch.max(torch.tensor(0), 1-logits_fake[d_id])) # Gen loss
 
-        for l_id in range(len(fmap_r[0])):
-            l_feat += 1/(K*L) * torch.mean(abs(fmap_r[d_id][l_id] - \
-                    fmap_gen[d_id][l_id]))/torch.mean(abs(fmap_r[d_id][l_id]))
-    
-    del s_disc_r, fmap_r, s_disc_gen, fmap_gen
+        for l_id in range(len(fmaps_real[0])):
+            l_feat += 1/(K*L) * torch.mean(abs(fmaps_real[d_id][l_id] - \
+                    fmaps_fake[d_id][l_id]))/torch.mean(abs(fmaps_real[d_id][l_id]))
 
     return l_g, l_feat
 
@@ -95,27 +94,55 @@ def run_disc_loss(disc, s, s_hat):
         s = s.reshape(B*C, 1, L)
         s_hat = s_hat.reshape(B*C, 1, L)
 
-    s_disc_r, fmap_r = disc(s) # list of the outputs from each discriminator
-    s_disc_gen, fmap_gen = disc(s_hat.detach())
+    # s_disc_r, fmap_r = disc(s) # list of the outputs from each discriminator
+    # s_disc_gen, fmap_gen = disc(s_hat.detach())
 
-    K = len(fmap_gen)
-    L = len(fmap_gen[0])
+    logits_real, fmaps_real = disc(s) # list of the outputs from each discriminator
+    logits_fake, fmaps_fake = disc(s_hat.detach())
 
-    for d_id in range(len(fmap_r)):
-        l_d += 1/K * torch.mean(torch.max(torch.tensor(0), 1-s_disc_r[d_id]) + torch.max(torch.tensor(0), 1+s_disc_gen[d_id])) # Disc loss
 
-    del s_disc_r, fmap_r, s_disc_gen, fmap_gen
+    K = len(fmaps_real) # Number of features map, corresponding to different FFTs.
+    L = len(fmaps_real[0]) # Nubmer of layers, of each DISC.
+
+    for d_id in range(K):
+        l_d += 1/K * torch.mean(torch.max(torch.tensor(0), 1-logits_real[d_id]) + torch.max(torch.tensor(0), 1+logits_fake[d_id])) # Disc loss
+
+    return l_d 
+
+
+def run_dac_disc_loss(disc, s, s_hat):
+
+    l_d = 0
+    
+    B, C, L = s.shape 
+    if C == 2:
+        s = s.reshape(B*C, 1, L)
+        s_hat = s_hat.reshape(B*C, 1, L)
+
+    # s_disc_r, fmap_r = disc(s) # list of the outputs from each discriminator
+    # s_disc_gen, fmap_gen = disc(s_hat.detach())
+
+    fmaps_real = disc(s) # list of the outputs from each discriminator
+    fmaps_fake = disc(s_hat.detach())
+    print(fmaps_real[0].shape, fmaps_real[1].shape, fmaps_real[2].shape)
+    fake()
+
+
+    K = len(fmaps_real) # Number of features map, corresponding to different FFTs.
+    L = len(fmaps_real[0]) # Nubmer of layers, of each DISC.
+
+    for d_id in range(K):
+        l_d += 1/K * torch.mean(torch.max(torch.tensor(0), 1-logits_real[d_id]) + torch.max(torch.tensor(0), 1+logits_fake[d_id])) # Disc loss
 
     return l_d 
 
     
 def get_model(inp_args):
     
-    other_cond = True if inp_args.discrete_AE else False
-    if inp_args.train_time_diff:
-        model = DiffAudioTime(other_cond=other_cond, **vars(inp_args)).to(device)
-    else:
-        model = DiffAudioRep(other_cond=other_cond, **vars(inp_args)).to(device)
+    # other_cond = True if inp_args.discrete_AE else False
+    other_cond = True
+    
+    model = DiffAudioRep(other_cond=other_cond, **vars(inp_args)).to(device)
     
     if inp_args.discrete_AE:
         # load_from_checkpoint(model.discrete_AE, f'saved_models/{inp_args.discrete_AE}/model_best.amlt', strict=False)
@@ -132,15 +159,21 @@ def get_model(inp_args):
     
     return model.to(device)
 
+
 def get_disc(inp_args):
-    
+
     if inp_args.use_disc:
+        # if inp_args.disc_type == 'default':
         disc = MSDisc(filters=32).cuda(gpu_rank)
         if inp_args.load_model:
             load_from_checkpoint(disc, inp_args.load_model + '/disc_best.amlt')
         return disc.to(device)
+        # elif inp_args.disc_type == 'DAC':
+        #     disc = 
     else:
         return None
+    
+
     
 def synthesis(inp_args):
     
@@ -148,8 +181,8 @@ def synthesis(inp_args):
     model.eval()
     
     n_total, n_trainable = nn_parameters(model)
-    print(n_total, n_trainable)
-    print(f'Loaded model has {n_total / 1000000 :<.2f}M parameters; {n_trainable / 1000000 :<.2f} M trainable parameters')
+    # print(n_total, n_trainable)
+    print(f'Loaded model has {n_total / 1_000_000 :<.2f}M parameters; {n_trainable / 1_000_000 :<.2f} M trainable parameters')
 
     out_dir = inp_args.output_dir
     
@@ -179,9 +212,9 @@ def synthesis(inp_args):
             #     os.mkdir(full_folder)
                 
             # save_path_fill = out_dir_infill + filename
-            infill_folder = save_path[: -(len(save_path.split('/')[-1])+1)]
-            if not os.path.exists(infill_folder):
-                os.makedirs(infill_folder)
+            folder = save_path[: -(len(save_path.split('/')[-1])+1)]
+            if not os.path.exists(folder):
+                os.makedirs(folder)
             
             # print(wav_file)
             # try:
@@ -215,17 +248,17 @@ def train(inp_args, global_rank):
         log_params(vars(inp_args), inp_args.exp_name)
     
     if not inp_args.debug and global_rank == 0:
-        if not os.path.exists(f'runs/diff'):
-            os.mkdir(f'runs/diff')
-        if not os.path.exists(f'runs/diff/{inp_args.exp_name}'):
-            os.mkdir(f'runs/diff/{inp_args.exp_name}')
-        writer = SummaryWriter(f'runs/diff/{inp_args.exp_name}') 
+        if not os.path.exists(f'runs/'):
+            os.mkdir(f'runs/')
+        if not os.path.exists(f'runs/{inp_args.exp_name}'):
+            os.mkdir(f'runs/{inp_args.exp_name}')
+        writer = SummaryWriter(f'runs/{inp_args.exp_name}') 
     else:
         writer = None
     
     if inp_args.dataset == 'libri':
-        train_dataset = get_libri_dataset(task='train', seq_len_p_sec=inp_args.seq_len_p_sec, data_proc = inp_args.data_process)
-        valid_dataset = get_libri_dataset(task='valid', seq_len_p_sec=inp_args.seq_len_p_sec, data_proc = inp_args.data_process)
+        train_dataset = get_libri_dataset(task='train', seq_len_p_sec=inp_args.seq_len_p_sec, data_folder_path = inp_args.data_folder_path, data_proc = inp_args.data_process)
+        valid_dataset = get_libri_dataset(task='valid', seq_len_p_sec=inp_args.seq_len_p_sec, data_folder_path = inp_args.data_folder_path, data_proc = inp_args.data_process)
     elif inp_args.dataset == 'max':
         train_dataset = get_max_dataset(task='train', seq_len_p_sec=inp_args.seq_len_p_sec, data_proc = inp_args.data_process)
         valid_dataset = get_max_dataset(task='valid', seq_len_p_sec=inp_args.seq_len_p_sec, data_proc = inp_args.data_process)
@@ -249,7 +282,7 @@ def train(inp_args, global_rank):
     model = get_model(inp_args)
     disc = get_disc(inp_args)
     n_total, n_trainable = nn_parameters(model)
-    print(n_total, n_trainable)
+    # print(n_total, n_trainable)
     print(f'Loaded model has {n_total / 1000000 :<.2f}M parameters; {n_trainable / 1000000 :<.2f} M trainable parameters')
 
     ema = None
@@ -286,7 +319,7 @@ def train(inp_args, global_rank):
             disc_freq = inp_args.disc_freq, 
             writer = writer, 
             step = step, 
-            debug = inp_args.debug)        
+            debug = inp_args.debug)
 
         val_losses = valid_loop(model=model, data_loader=valid_loader, debug=inp_args.debug)
         
@@ -323,28 +356,22 @@ def train_loop(model=None, ema=None, disc=None, data_loader=None, optimizer_G=No
             # if len(list(nums.values())) > 1:
             l_w = nums['qtz_loss']
             l_g, l_feat = run_gen_loss(disc, x, x_hat)
-
-            l_t = torch.mean(torch.abs(x - x_hat))
-            l_f = melspec_loss_fn(x, x_hat, range(5,12))
-
             nums['l_g'] = l_g
             nums['l_feat'] = l_feat
-            nums['l_t'] = l_t
-            nums['l_f'] = l_f
 
             optimizer_G.zero_grad()
-            g_loss = 0.1 * l_t + l_f + 3 * l_g + 3 * l_feat + 0.1 * l_w
+            g_loss = 0.1 * nums['l_t'] + nums['l_f'] + 3 * l_g + 3 * l_feat + l_w
             g_loss.backward()
             optimizer_G.step()
 
             # Update Discriminator
-            if idx % disc_freq == 0:
+            if random.random() < 2/3: 
                 optimizer_D.zero_grad()
-                l_d = run_disc_loss(disc, x, x_hat)
+                # l_d = run_disc_loss(disc, x, x_hat)
+                l_d = run_dac_disc_loss(disc, x, x_hat)
                 nums['l_d'] = l_d
                 l_d.backward()
                 optimizer_D.step()                    
-
         else:
             # pass
             optimizer_G.zero_grad()
@@ -427,9 +454,9 @@ def get_max_dataset(task, seq_len_p_sec, data_proc):
     return dataset
 
 
-def get_libri_dataset(task, seq_len_p_sec, data_proc):
+def get_libri_dataset(task, seq_len_p_sec, data_folder_path, data_proc):
     
-    dataset = Dataset_Libri(task = task, seq_len_p_sec = seq_len_p_sec, data_proc = data_proc)
+    dataset = Dataset_Libri(task = task, seq_len_p_sec = seq_len_p_sec, data_folder_path=data_folder_path, data_proc = data_proc)
     
     return dataset
 
@@ -492,13 +519,15 @@ if __name__ == '__main__':
     parser.add_argument('--write_on_every', type=int, default=50)  
     parser.add_argument('--dataset', type=str, default='libri')
     parser.add_argument('--data_process', type=str, default='norm')
+    parser.add_argument('--disc_type', type=str, default='default')
     
     parser.add_argument('--train_time_diff', dest='train_time_diff', action='store_true')
 
     # Encoder and decoder
     parser.add_argument('--discrete_AE', type=str, default='')
     parser.add_argument('--continuous_AE', type=str, default='')
-    
+    parser.add_argument('--discrete_type', type=str, default="Encodec")
+    parser.add_argument('--kernel_size', type=int, default=7)
     parser.add_argument('--rep_dims', type=int, default=128)
     parser.add_argument('--emb_dims', type=int, default=128)
     parser.add_argument('--quantization', dest='quantization', action='store_true')
@@ -513,7 +542,6 @@ if __name__ == '__main__':
     # Diff model
     parser.add_argument('--model_type', type=str, default='unet')  
     parser.add_argument('--diff_dims', type=int, default=128)
-    parser.add_argument('--qtz_condition', dest='qtz_condition', action='store_true')
     parser.add_argument('--self_condition', dest='self_condition', action='store_true')
     parser.add_argument('--seq_length', type=int, default=800)
     parser.add_argument('--scaling_frame', dest='scaling_frame', action='store_true')
@@ -526,6 +554,7 @@ if __name__ == '__main__':
 
     # Cond model
     # parser.add_argument('--cond_quantization', dest='cond_quantization', action='store_true')
+    parser.add_argument('--cond_dims', type=int, default=128)
     parser.add_argument('--target_bandwidths', nargs='+', type=float, default=[1.5,3,6,9,12])
     parser.add_argument('--cond_bandwidth', type=float, default=None)
     # parser.add_argument('--cond_global', type=float, default=1)

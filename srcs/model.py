@@ -12,6 +12,10 @@ use_cuda = torch.cuda.is_available()
 device = torch.device("cuda" if use_cuda else "cpu")
 
 
+def exists(x):
+    return x is not None
+
+
 def reshape_to_4dim(x):
 
     if len(x.shape) == 4:
@@ -38,16 +42,16 @@ class FeatureLearner(nn.Module):
         self.quantization = quantization
         self.sample_rate = base_kwargs['sample_rate'] 
         self.target_bandwidths = target_bandwidths
-        
-        self.encoder = SEANetEncoder(channels=1, kernel_size=7, last_kernel_size=7, **base_kwargs)
-        self.decoder = SEANetDecoder(channels=1, kernel_size=7, last_kernel_size=7, **base_kwargs) 
+
+        self.encoder = SEANetEncoder(channels=1, dimension=base_kwargs['rep_dims'], last_kernel_size=base_kwargs['kernel_size'], **base_kwargs)
+        self.decoder = SEANetDecoder(channels=1, dimension=base_kwargs['rep_dims'], last_kernel_size=base_kwargs['kernel_size'], **base_kwargs) 
         
         if quantization:
             print('bandwidth:', target_bandwidths)
 
             self.frame_rate = self.sample_rate/self.encoder.hop_length
             n_q = int(1000 * target_bandwidths[-1] // (math.ceil(self.frame_rate) * 10)) # Total number of quantizer needed
-            self.quantizer = ResidualVectorQuantizer(dimension=base_kwargs['rep_dims'], n_q=n_q)
+            self.quantizer = ResidualVectorQuantizer(dimension=base_kwargs['cond_dims'], n_q=n_q)
 
     def forward(self, x, bandwidth=None):
         
@@ -62,13 +66,15 @@ class FeatureLearner(nn.Module):
             
         x_hat = self.decoder(x_rep)
         neg_sdr = sdr_loss(x, x_hat).mean()
+
+        l_t = torch.mean(torch.abs(x - x_hat))
+        l_f = melspec_loss_fn(x, x_hat, range(5,12))
         
         if self.quantization:
-            tot_loss = neg_sdr + qtz_loss
-            return {'tot_loss': tot_loss, 'neg_sdr': neg_sdr, "qtz_loss": qtz_loss}, x_hat
+            # tot_loss = neg_sdr + qtz_loss
+            return {'neg_sdr': neg_sdr, "qtz_loss": qtz_loss, 'l_t': l_t, 'l_f': l_f}, x_hat
         else:
-            return {'neg_sdr': neg_sdr}, x_hat
-
+            return {'neg_sdr': neg_sdr, "qtz_loss": torch.tensor(0), 'l_t': l_t, 'l_f': l_f}, x_hat
 
     def get_feature(self, x, bandwidth=None):
         
@@ -79,9 +85,45 @@ class FeatureLearner(nn.Module):
             x_rep = quantizedResults.quantized
         
         return x_rep
+    
+    def decode(self, x_rep):
+        return self.decoder(x_rep)
+
+
+class DAC(nn.Module):
+    def __init__(self, model_type: str = "16khz"):
+        super().__init__()
+        try:
+            import dac.utils
+        except ImportError:
+            raise RuntimeError("Could not import dac, make sure it is installed, "
+                               "please run `pip install descript-audio-codec`")
+        self.model = dac.utils.load_model(model_type=model_type)
+        self.FRAME_RATE = 50
+        self.CARDINALITY = 1024
+        # self.n_quantizers = self.total_codebooks
+        self.model.eval()
+
+    def forward(self, x: torch.Tensor):
+        raise NotImplementedError("Forward and training with DAC not supported.")
+    
+    def get_num_qtz(self, bandwidth):
+        return int(bandwidth * 1000 / math.log2(self.CARDINALITY) / self.FRAME_RATE)
+
+    def get_feature(self, x: torch.Tensor, bandwidth=3):
+        
+        n_quantizers = self.get_num_qtz(bandwidth)
+        codes = self.model.encode(x)[1] # return shape (bt, 12, L/320); 12 is the total num of codebooks
+        codes = codes[:, :n_quantizers]
+        latent = self.model.quantizer.from_codes(codes)[0] # the original decode_latent def in DAC
+        return latent
+
+    def decode(self, latent):
+        return self.model.decode(latent)
+
 
 class DiffAudioRep(nn.Module):
-    def __init__(self, quantization=False, self_condition=False, other_cond=False, seq_length=320, ratios=[8],scaling_frame=False, scaling_feature=False, scaling_global=False, scaling_dim=False, sampling_timesteps=None, cond_global=1, cond_channels=128, upsampling_ratios=[5, 4, 2], unet_scale_x = False, unet_scale_cond = True, cond_bandwidth=3, **base_kwargs):
+    def __init__(self, discrete_type='Encodec', quantization=False, self_condition=False, other_cond=False, seq_length=320, ratios=[8],scaling_frame=False, scaling_feature=False, scaling_global=False, scaling_dim=False, sampling_timesteps=None, cond_global=1, cond_dims=128, upsampling_ratios=[5, 4, 2], unet_scale_x = False, unet_scale_cond = True, cond_bandwidth=3, **base_kwargs):
 
         super(). __init__()
 
@@ -91,11 +133,19 @@ class DiffAudioRep(nn.Module):
         ENCODEC_RATIO = [8, 5, 4, 2]
 
         self.continuous_AE = FeatureLearner(quantization=False, ratios=ratios, **base_kwargs).eval() # Learn discrete features
-        self.discrete_AE = FeatureLearner(quantization=True, ratios=ENCODEC_RATIO, **base_kwargs).eval()
         self.continuous_AE.requires_grad_(False)
-        self.discrete_AE.requires_grad_(False)
+        # self.continuous_AE = None
 
-        
+        if discrete_type == 'Encodec':
+            self.discrete_AE = FeatureLearner(quantization=True, ratios=ENCODEC_RATIO, cond_dims=cond_dims, **base_kwargs).eval()
+            self.discrete_AE.requires_grad_(False)
+            # self.discrete_AE = None
+        elif discrete_type == "DAC":
+            self.discrete_AE = DAC().eval()
+            self.discrete_AE.requires_grad_(False)
+        else:
+            raise ValueError('Unsupported discrete autoencoder type.')
+
         self.scaling_frame = scaling_frame
         self.scaling_feature = scaling_feature
         self.scaling_global = scaling_global
@@ -103,7 +153,7 @@ class DiffAudioRep(nn.Module):
         self.cond_global = cond_global
         self.unet_scale_x = unet_scale_x
         
-        diff_backbone = Unet1D(dim = base_kwargs['diff_dims'], dim_mults=(1, 2, 2, 4, 4), inp_channels=base_kwargs['rep_dims'], self_condition=self_condition, other_cond=other_cond, scaling_frame=scaling_frame, scaling_feature=scaling_feature, scaling_global=scaling_global, scaling_dim=scaling_dim, cond_global=cond_global, cond_channels=cond_channels, upsampling_ratios=upsampling_ratios, unet_scale_x=unet_scale_x, unet_scale_cond=unet_scale_cond)
+        diff_backbone = Unet1D(dim = base_kwargs['diff_dims'], dim_mults=(1, 2, 2, 4, 4), inp_channels=base_kwargs['rep_dims'], self_condition=self_condition, other_cond=other_cond, scaling_frame=scaling_frame, scaling_feature=scaling_feature, scaling_global=scaling_global, scaling_dim=scaling_dim, cond_global=cond_global, cond_channels=cond_dims, upsampling_ratios=upsampling_ratios, unet_scale_x=unet_scale_x, unet_scale_cond=unet_scale_cond)
 
         self.diffusion = GaussianDiffusion1D(model=diff_backbone, seq_length=seq_length, sampling_timesteps=sampling_timesteps)              
 
@@ -132,34 +182,35 @@ class DiffAudioRep(nn.Module):
         return x_rep, scale
     
     def get_cond(self, x):
-        return self.discrete_AE.get_feature(x, bandwidth=self.cond_bandwidth)
+        if self.discrete_AE:
+            return self.discrete_AE.get_feature(x, bandwidth=self.cond_bandwidth)
+        else: # Unconditionl model - not a codec
+            return None
     
     def get_rep(self, x):
-        x_rep = self.continuous_AE.get_feature(x)
-        x_rep, scale = self.scaling(x_rep, global_max=18.0)
-        return x_rep, scale
+        if self.continuous_AE:
+            x_rep = self.continuous_AE.get_feature(x)
+            x_rep, scale = self.scaling(x_rep, global_max=18.0)
+            return x_rep, scale
+        else:
+            return x, 1
     
     def decode(self, rep):
-        return self.continuous_AE.decoder(rep)
+        if self.continuous_AE:
+            return self.continuous_AE.decode(rep)
+        else: # Model time-domain;
+            return rep
         # x_hat = self.discrete_AE.decoder(in_dec) # learn discrete features
 
     def forward(self, x, t=None):  
         
-        # with torch.no_grad():
-        #     cond = self.discrete_AE.get_feature(x, bandwidth=self.cond_bandwidth)
-        #     x_rep = self.continuous_AE.get_feature(x)  
-        #     # x_rep = self.discrete_AE.get_feature(x, bandwidth=12) # learn discrete features
-            
-        # # if not self.unet_scale_x:
-        # x_rep, scale = self.scaling(x_rep, global_max=18.0)
-        
         with torch.no_grad():
             cond = self.get_cond(x)
+            # cond = None
             rep, scale = self.get_rep(x)
-            
+       
         rep = reshape_to_3dim(rep)
         diff_loss, predicted_x_start, *other_reps_from_diff = self.diffusion(rep.detach(), cond, t=t) 
-
         in_dec = predicted_x_start * scale if scale is not None else predicted_x_start
         
         with torch.no_grad():
@@ -170,8 +221,28 @@ class DiffAudioRep(nn.Module):
         
         return {'diff_loss': diff_loss, 'neg_sdr': neg_sdr}, x_hat, rep, predicted_x_start, *other_reps_from_diff, scale
 
+
+    @torch.no_grad()
+    def run_continuous_ae(self, x):
+        """ For debugging purpose mainly; Run time-domain signal through the continuous auto-encoder """
+        return self.continuous_AE(x)
+
+    @torch.no_grad()
+    def run_discrete_ae(self, x):
+        """ For debugging purpose mainly; Run time-domain signal through the discrete auto-encoder """
+        return self.discrete_AE(x) 
+
     @torch.no_grad()
     def sample(self, x, seq_length, sample_type='', midway_t = 100, lam = 0.1):
+
+
+        ######## DEBUGGING PURPOSE ##########
+
+        # # # loss, x = self.run_discrete_ae(x) # x.shape - [1, 1, L]
+        # loss, x = self.run_continuous_ae(x) # x.shape - [1, 1, L]
+        # return x
+
+        #####################################
         
         midway_t = 100
         lam = 0.1
@@ -180,26 +251,27 @@ class DiffAudioRep(nn.Module):
         
         with torch.no_grad():
             cond = self.get_cond(x)
-            _, scale = self.get_rep(x)        
-        
-        # print(x.shape, cond.shape)
-        # fake()
+            # cond = None
+            _, scale = self.get_rep(x)      
+        print(torch.max(cond), torch.min(cond), scale)
         
         # ------ rep diff ----- 
-        
-        # sampled_rep = self.diffusion.sample(batch_size=1, condition=cond)
-        # x_scale_sample = self.continuous_AE.decoder(sampled_rep * scale)
+        sampled_rep = self.diffusion.sample(batch_size=1, condition=cond)
+        print(torch.max(sampled_rep), torch.min(sampled_rep))
 
-        # ----- Infilling ----
-        infill_img = cond
-        for layer in self.diffusion.model.upsampling_layers:
-            infill_img = layer(infill_img)
-        infill_img = infill_img / torch.max(torch.abs(infill_img.flatten())) + 1e-8
-        sample = self.diffusion.infilling(infill_img = infill_img, condition=cond, midway_t=midway_t, lam=lam)
-        x_sample_infill = self.continuous_AE.decoder(sample * scale)
+        x_scale_sample = self.decode(sampled_rep * scale)
+        return x_scale_sample
+
+        # # ----- Infilling ----
+        # infill_img = cond
+        # for layer in self.diffusion.model.upsampling_layers:
+        #     infill_img = layer(infill_img)
+        # infill_img = infill_img / torch.max(torch.abs(infill_img.flatten())) + 1e-8
+
+        # sample = self.diffusion.infilling(infill_img = infill_img, condition=cond, midway_t=midway_t, lam=lam)
+        # x_sample_infill = self.continuous_AE.decoder(sample * scale)
         
-        # return x_scale_sample, x_sample_infill   
-        return  x_sample_infill   
+        # return  x_sample_infill   
     
 
 if __name__ == '__main__':

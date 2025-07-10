@@ -12,7 +12,7 @@ from einops.layers.torch import Rearrange
 
 from tqdm.auto import tqdm
 
-from . import SEANetDecoder, SConvTranspose1d, ConvLinear
+from . import SEANetDecoder, SConvTranspose1d, ConvLinear, UpsampleTranspose1d
 
 def exists(x):
     return x is not None
@@ -58,7 +58,9 @@ class Residual(nn.Module):
 def Upsample(dim, dim_out = None):
     return nn.Sequential(
         nn.Upsample(scale_factor = 2, mode = 'nearest'),
-        nn.Conv1d(dim, default(dim_out, dim), 3, padding = 1)
+        # nn.Conv1d(dim, default(dim_out, dim), 3, padding = 1),
+        nn.Conv1d(dim, default(dim_out, dim), 7, padding = 3),
+        nn.SiLU()
     )
 
 def Downsample(dim, dim_out = None):
@@ -292,11 +294,10 @@ class Unet1D(nn.Module):
         self.unet_scale_cond = unet_scale_cond
         self.unet_scale_x = unet_scale_x
 
-        input_channels = inp_channels * (2 if self_condition or other_cond else 1)
-
+        input_channels = inp_channels * (2 if self_condition else 1)
+        
         # input_channels = inp_channels * (2 if (self_condition or qtz_condition or other_cond) and not self.use_film else 1)
         if other_cond:
-            input_channels = inp_channels + cond_channels # for dac input and time input
             input_channels = inp_channels + cond_channels # for dac input and time input
 
         init_dim = default(init_dim, dim)
@@ -364,13 +365,15 @@ class Unet1D(nn.Module):
         self.final_res_block = block_klass(dim * 2, dim, time_emb_dim = time_dim)
         self.final_conv = nn.Conv1d(dim, self.out_dim, 1)
 
-        # ## 
+ 
         if other_cond and upsampling_ratios is not None:
             ratios = upsampling_ratios
             self.upsampling_layers = nn.ModuleList([])
             for r in ratios:
                 self.upsampling_layers.append(
-                    SConvTranspose1d(cond_channels, cond_channels, kernel_size = r*2, stride=r, causal=False, trim_right_ratio=True))
+                    # SConvTranspose1d(cond_channels, cond_channels, kernel_size = r*2, stride=r, causal=False, trim_right_ratio=True))
+                    UpsampleTranspose1d(cond_channels, cond_channels, kernel_size = r*2, stride=r, causal=False, trim_right_ratio=True))
+
 
     def feature_scaling(self, x_rep, global_max=1):
 
@@ -399,7 +402,6 @@ class Unet1D(nn.Module):
             if not self.use_film:
                 x = torch.cat((x_cond, x), dim = 1)
                 
-            
             if self.unet_scale_x: 
                 x, _ = self.scaling(x, global_max=self.cond_global)
 

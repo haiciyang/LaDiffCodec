@@ -24,7 +24,7 @@ def melspec_loss_fn(s, s_hat, n_freq):
 
         mel_transform = transforms.MelSpectrogram(
             n_fft=2**n, hop_length=(2**n)//4, 
-            win_length=2**n, window_fn=torch.hann_window,n_mels=64,
+            win_length=2**n, window_fn=torch.hann_window, n_mels=64,
             normalized=True, center=False, pad_mode=None, power=1).to(s.device)
         
         mel_s = mel_transform(s)

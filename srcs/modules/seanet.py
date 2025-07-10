@@ -8,6 +8,7 @@
 
 import typing as tp
 
+import torch
 import numpy as np
 import torch.nn as nn
 
@@ -17,6 +18,29 @@ from . import (
     SLSTM
 )
 
+def default(val, d):
+    if exists(val):
+        return val
+    return d() if callable(d) else d
+
+def exists(x):
+    return x is not None
+
+class Snake(nn.Module):
+    def __init__(self, alpha=1):
+        super().__init__()
+        self.alpha = alpha
+    
+    def forward(self, x):
+        return x + (1 / self.alpha) * torch.sin(self.alpha * x) ** 2
+
+def Upsample(scale_factor, dim, dim_out = None):
+    return nn.Sequential(
+        nn.Upsample(scale_factor = scale_factor, mode = 'nearest'),
+        nn.Conv1d(dim, default(dim_out, dim), 7, padding = 3),
+        Snake()
+        # nn.SiLU()
+    )
 
 class SEANetResnetBlock(nn.Module):
     """Residual block from SEANet model.
@@ -92,7 +116,7 @@ class SEANetEncoder(nn.Module):
                  ratios: tp.List[int] = [8, 5, 4, 2], activation: str = 'ELU', activation_params: dict = {'alpha': 1.0},
                  norm: str = 'weight_norm', norm_params: tp.Dict[str, tp.Any] = {}, final_activation: tp.Optional[str] = None, 
                  final_activation_params: tp.Optional[dict] = None, kernel_size: int = 7, last_kernel_size: int = 7, 
-                 residual_kernel_size: int = 3, dilation_base: int = 2, causal: bool = False,
+                 residual_kernel_size: int = 3, dilation_base: int = 3, causal: bool = False,
                  pad_mode: str = 'reflect', true_skip: bool = False, compress: int = 2, lstm: int = 2, **kwargs):
         super().__init__()
         self.channels = channels
@@ -109,6 +133,7 @@ class SEANetEncoder(nn.Module):
             SConv1d(channels, mult * n_filters, kernel_size, norm=norm, norm_kwargs=norm_params,
                     causal=causal, pad_mode=pad_mode)
         ]
+
         # Downsample to raw audio scale
         for i, ratio in enumerate(self.ratios):
             # Add residual layers
@@ -185,7 +210,7 @@ class SEANetDecoder(nn.Module):
                  ratios: tp.List[int] = [8, 5, 4, 2], activation: str = 'ELU', activation_params: dict = {'alpha': 1.0},
                  final_activation: tp.Optional[str] = None, final_activation_params: tp.Optional[dict] = None,
                  norm: str = 'weight_norm', norm_params: tp.Dict[str, tp.Any] = {}, kernel_size: int = 7,
-                 last_kernel_size: int = 7, residual_kernel_size: int = 3, dilation_base: int = 2, causal: bool = False,
+                 last_kernel_size: int = 7, residual_kernel_size: int = 3, dilation_base: int = 3, causal: bool = False,
                  pad_mode: str = 'reflect', true_skip: bool = False, compress: int = 2, lstm: int = 2,
                  trim_right_ratio: float = 1.0, **kwargs):
         super().__init__()
@@ -212,11 +237,19 @@ class SEANetDecoder(nn.Module):
             # Add upsampling layers
             model += [
                 act(**activation_params),
-                SConvTranspose1d(mult * n_filters, mult * n_filters // 2,
-                                 kernel_size=ratio * 2, stride=ratio,
-                                 norm=norm, norm_kwargs=norm_params,
-                                 causal=causal, trim_right_ratio=trim_right_ratio),
+
+                # SConvTranspose1d(mult * n_filters, mult * n_filters // 2,
+                #                  kernel_size=ratio * 2, stride=ratio,
+                #                  norm=norm, norm_kwargs=norm_params,
+                                #  causal=causal, trim_right_ratio=trim_right_ratio),
+                # # Add one more cond layers 
+                # SConv1d(mult * n_filters // 2, mult * n_filters // 2, kernel_size, norm=norm, norm_kwargs=norm_params,
+                #     causal=causal, pad_mode=pad_mode)   
+
+                # === Replace transposed conv with nearest upsampling ===
+                Upsample(ratio, mult * n_filters, mult * n_filters // 2)
             ]
+            
             # Add residual layers
             for j in range(n_residual_layers):
                 model += [

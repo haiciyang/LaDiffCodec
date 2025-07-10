@@ -49,9 +49,11 @@ class Dataset_Libri(Dataset):
         self.data_proc = data_proc
         
         if self.task == 'train':
-            path = data_folder_path + '/train-clean-100/*/*/*.wav'
-        elif self.task == 'valid' or self.task == 'eval':
-            path = data_folder_path + '/dev-clean/*/*/*.wav'
+            path = os.path.join(data_folder_path, 'train-clean-100/*/*/*.wav')
+        elif self.task == 'valid': 
+            path = os.path.join(data_folder_path, 'dev-clean/*/*/*.wav')
+        elif self.task == 'eval':
+            path = os.path.join(data_folder_path, 'test-clean-100/*/*/*.wav')
         else:
             raise ValueError('Invalid task')
         
@@ -95,7 +97,6 @@ class Dataset_Libri(Dataset):
         else:
             raise ValueError('Invalid data process')
 
-
         seq_length = int(self.seq_len_p_sec * 16000)
         
         if self.task == 'eval':
@@ -128,6 +129,7 @@ class Dataset_Libri(Dataset):
 
         
         return seg
+    
         
         
         

@@ -5,6 +5,7 @@ import os
 import re
 import glob
 import time
+import random
 import argparse
 import numpy as np
 from tqdm import tqdm
@@ -27,12 +28,14 @@ from torch.utils.data.distributed import DistributedSampler
 
 # from ema_pytorch import EMA
 
-from .utils import EMA, logging, save_checkpoints, load_from_checkpoint, log_params
-from .losses import melspec_loss_fn, sdr_loss
 from .model import FeatureLearner
+from .model_2 import EncodecModel
 from .dataset_max import Dataset_Max
 from .dataset_libri import Dataset_Libri
+from .losses import melspec_loss_fn, sdr_loss
+from .dacdisc import Discriminator as DACDisc
 from .msstftd import MultiScaleSTFTDiscriminator as MSDisc
+from .utils import EMA, logging, save_checkpoints, load_from_checkpoint, log_params
 
 use_cuda = torch.cuda.is_available()
 device = torch.device("cuda" if use_cuda else "cpu")
@@ -59,26 +62,24 @@ def run_gen_loss(disc, s, s_hat):
         s = s.reshape(B*C, 1, L)
         s_hat = s_hat.reshape(B*C, 1, L)
 
-    s_disc_r, fmap_r = disc(s) # list of the outputs from each discriminator
-    s_disc_gen, fmap_gen = disc(s_hat)
+    logits_real, fmaps_real = disc(s) # list of the outputs from each discriminator
+    logits_fake, fmaps_fake = disc(s_hat)
 
     # s_disc_r: [3*[batch_size*[1, 309, 65]]]
     # fmap_r: [3*5*torch.Size([64, 32, 59, 513/257/128..])] 5 conv layers, different stride size
-    K = len(fmap_gen)
-    L = len(fmap_gen[0])
+    K = len(fmaps_real)
+    L = len(fmaps_real[0])
 
     l_g = 0
     l_feat = 0
 
-    for d_id in range(len(fmap_r)):
+    for d_id in range(len(fmaps_real)):
 
-        l_g += 1/K * torch.mean(torch.max(torch.tensor(0), 1-s_disc_gen[d_id])) # Gen loss
+        l_g += 1/K * torch.mean(torch.max(torch.tensor(0), 1-logits_fake[d_id])) # Gen loss
 
-        for l_id in range(len(fmap_r[0])):
-            l_feat += 1/(K*L) * torch.mean(abs(fmap_r[d_id][l_id] - \
-                    fmap_gen[d_id][l_id]))/torch.mean(abs(fmap_r[d_id][l_id]))
-    
-    del s_disc_r, fmap_r, s_disc_gen, fmap_gen
+        for l_id in range(len(fmaps_real[0])):
+            l_feat += 1/(K*L) * torch.mean(abs(fmaps_real[d_id][l_id] - \
+                    fmaps_fake[d_id][l_id]))/torch.mean(abs(fmaps_real[d_id][l_id]))
 
     return l_g, l_feat
 
@@ -91,44 +92,124 @@ def run_disc_loss(disc, s, s_hat):
         s = s.reshape(B*C, 1, L)
         s_hat = s_hat.reshape(B*C, 1, L)
 
-    s_disc_r, fmap_r = disc(s) # list of the outputs from each discriminator
-    s_disc_gen, fmap_gen = disc(s_hat.detach())
+    # s_disc_r, fmap_r = disc(s) # list of the outputs from each discriminator
+    # s_disc_gen, fmap_gen = disc(s_hat.detach())
 
-    K = len(fmap_gen)
-    L = len(fmap_gen[0])
+    logits_real, fmaps_real = disc(s) # list of the outputs from each discriminator
+    logits_fake, fmaps_fake = disc(s_hat.detach())
 
-    for d_id in range(len(fmap_r)):
-        l_d += 1/K * torch.mean(torch.max(torch.tensor(0), 1-s_disc_r[d_id]) + torch.max(torch.tensor(0), 1+s_disc_gen[d_id])) # Disc loss
 
-    del s_disc_r, fmap_r, s_disc_gen, fmap_gen
+    K = len(fmaps_real) # Number of features map, corresponding to different FFTs.
+    L = len(fmaps_real[0]) # Nubmer of layers, of each DISC.
+
+    for d_id in range(K):
+        l_d += 1/K * torch.mean(torch.max(torch.tensor(0), 1-logits_real[d_id]) + torch.max(torch.tensor(0), 1+logits_fake[d_id])) # Disc loss
 
     return l_d 
+
+
+def run_dac_gen_loss(disc, s, s_hat):
+
+    B, C, L = s.shape 
+    if C == 2:
+        s = s.reshape(B*C, 1, L)
+        s_hat = s_hat.reshape(B*C, 1, L)
+
+    fmaps_real = disc(s) # list of the outputs from each discriminator
+    fmaps_fake = disc(s_hat)
+
+    print(len(fmaps_real[0]), len(fmaps_real[1]), len(fmaps_real[2]))
+    print(fmaps_real[0][0].shape,fmaps_real[1][0].shape,fmaps_real[2][0].shape, )
+    fake()
+
+    # s_disc_r: [3*[batch_size*[1, 309, 65]]]
+    # fmap_r: [3*5*torch.Size([64, 32, 59, 513/257/128..])] 5 conv layers, different stride size
+    K = len(fmaps_real)
+    L = len(fmaps_real[0])
+
+    l_g = 0
+    l_feat = 0
+
+    for d_id in range(len(fmaps_real)):
+
+        l_g += 1/K * torch.mean(torch.max(torch.tensor(0), 1-logits_fake[d_id])) # Gen loss
+
+        for l_id in range(len(fmaps_real[0])):
+            l_feat += 1/(K*L) * torch.mean(abs(fmaps_real[d_id][l_id] - \
+                    fmaps_fake[d_id][l_id]))/torch.mean(abs(fmaps_real[d_id][l_id]))
+
+    return l_g, l_feat
+
+
+def run_dac_disc_loss(disc, s, s_hat):
+
+    l_d = 0
+    
+    B, C, L = s.shape 
+    if C == 2:
+        s = s.reshape(B*C, 1, L)
+        s_hat = s_hat.reshape(B*C, 1, L)
+
+    # s_disc_r, fmap_r = disc(s) # list of the outputs from each discriminator
+    # s_disc_gen, fmap_gen = disc(s_hat.detach())
+
+    fmaps_real = disc(s) # list of the outputs from each discriminator
+    fmaps_fake = disc(s_hat.detach())
+    print(len(fmaps_real[0]), len(fmaps_real[1]), len(fmaps_real[2]))
+    fake()
+
+
+    K = len(fmaps_real) # Number of features map, corresponding to different FFTs.
+    L = len(fmaps_real[0]) # Nubmer of layers, of each DISC.
+
+    for d_id in range(K):
+        l_d += 1/K * torch.mean(torch.max(torch.tensor(0), 1-logits_real[d_id]) + torch.max(torch.tensor(0), 1+logits_fake[d_id])) # Disc loss
+
+    return l_d 
+
 
 def get_model(inp_args):
     
     model = FeatureLearner(**vars(inp_args)).to(device)
     
     if inp_args.load_model:
-        load_from_checkpoint(model, f'saved_models/{inp_args.load_model}/model_best.amlt', strict=False)
+        # load_from_checkpoint(model, f'saved_models/{inp_args.load_model}/model_best.amlt', strict=False)
+        load_from_checkpoint(model, inp_args.load_model, strict=True)
         # load_from_checkpoint(model, inp_args.finetune_model + '.amlt', strict=False)
     
     return model
 
+# def get_disc(inp_args):
+    
+#     if inp_args.use_disc:
+#         disc = MSDisc(filters=128).to(device) # CHANGED FROM 32
+#         if inp_args.load_model:
+#             load_from_checkpoint(disc, f'saved_models/{inp_args.load_model}/disc_best.amlt')
+#     else:
+#         disc = None
+    
+#     return disc
+
 def get_disc(inp_args):
-    
+
     if inp_args.use_disc:
-        disc = MSDisc(filters=32).to(device)
-        if inp_args.load_model:
-            load_from_checkpoint(disc, f'saved_models/{inp_args.load_model}/disc_best.amlt')
+        if inp_args.disc_type == 'default':
+            disc = MSDisc(filters=32).to(device)
+            if inp_args.load_model:
+                load_from_checkpoint(disc, f'saved_models/{inp_args.load_model}/disc_best.amlt')
+            return disc.to(device)
+        elif inp_args.disc_type == 'DAC':
+            disc = DACDisc(sample_rate=16000).to(device)
+            return disc.to(device)
     else:
-        disc = None
-    
-    return disc
+        return None
 
 def synthesis(inp_args):
     
-    model = FeatureLearner(**vars(inp_args)).to(device)
-    load_from_checkpoint(model, f'saved_models/{inp_args.load_model}/model_best.amlt', strict=True)
+    # model = FeatureLearner(**vars(inp_args)).to(device)
+    # load_from_checkpoint(model, f'saved_models/{inp_args.load_model}/model_best.amlt', strict=True)
+
+    model = get_model(inp_args)
     model.eval()
 
     out_dir = inp_args.output_dir
@@ -136,7 +217,14 @@ def synthesis(inp_args):
     with torch.no_grad():
         for wav_file in glob.glob(os.path.join(inp_args.input_dir, '*.wav')):
         
-            filename = wav_file.split('/')[-1][:-4]
+            # filename = wav_file.split('/')[-1][:-4]
+
+            filename = wav_file[len(inp_args.input_dir):][:-4]
+            save_path = inp_args.output_dir + filename
+
+            folder = save_path[: -(len(save_path.split('/')[-1])+1)]
+            if not os.path.exists(folder):
+                os.makedirs(folder)
             
             wav, sr = torchaudio.load(wav_file)
             wav = torchaudio.functional.resample(wav, orig_freq=sr, new_freq=16000)
@@ -145,8 +233,8 @@ def synthesis(inp_args):
             num, x_hat = model(wav, bandwidth = inp_args.bandwidth)
             print(sdr_loss(wav, x_hat))
             
-            torchaudio.save(os.path.join(out_dir, f'{filename}_{inp_args.bandwidth}kb_{inp_args.load_model}.wav'), x_hat.squeeze(1).cpu(), 16000)
-
+            # torchaudio.save(os.path.join(out_dir, f'{filename}_{inp_args.bandwidth}kb_{inp_args.load_model}.wav'), x_hat.squeeze(1).cpu(), 16000)
+            torchaudio.save(f'{save_path}.wav',  x_hat.squeeze(1).cpu(), 16000)
 
 def train(inp_args, global_rank):
     
@@ -163,8 +251,8 @@ def train(inp_args, global_rank):
         writer = None
     
     if inp_args.dataset == 'libri':
-        train_dataset = get_libri_dataset(task='train', seq_len_p_sec=inp_args.seq_len_p_sec, data_proc = inp_args.data_process)
-        valid_dataset = get_libri_dataset(task='valid', seq_len_p_sec=inp_args.seq_len_p_sec, data_proc = inp_args.data_process)
+        train_dataset = get_libri_dataset(task='train', seq_len_p_sec=inp_args.seq_len_p_sec, data_folder_path = inp_args.data_folder_path, data_proc = inp_args.data_process)
+        valid_dataset = get_libri_dataset(task='valid', seq_len_p_sec=inp_args.seq_len_p_sec, data_folder_path = inp_args.data_folder_path, data_proc = inp_args.data_process)
     elif inp_args.dataset == 'max':
         train_dataset = get_max_dataset(task='train', seq_len_p_sec=inp_args.seq_len_p_sec, data_proc = inp_args.data_process)
         valid_dataset = get_max_dataset(task='valid', seq_len_p_sec=inp_args.seq_len_p_sec, data_proc = inp_args.data_process)
@@ -259,22 +347,17 @@ def train_loop(model=None, ema=None, disc=None, data_loader=None, optimizer_G=No
             # if len(list(nums.values())) > 1:
             l_w = nums['qtz_loss']
             l_g, l_feat = run_gen_loss(disc, x, x_hat)
-
-            l_t = torch.mean(torch.abs(x - x_hat))
-            l_f = melspec_loss_fn(x, x_hat, range(5,12))
-
             nums['l_g'] = l_g
             nums['l_feat'] = l_feat
-            nums['l_t'] = l_t
-            nums['l_f'] = l_f
 
             optimizer_G.zero_grad()
-            g_loss = 0.1 * l_t + l_f + 3 * l_g + 3 * l_feat + 0.1 * l_w
+            g_loss = 0.1 * nums['l_t'] + nums['l_f'] + 3 * l_g + 3 * l_feat + l_w
             g_loss.backward()
             optimizer_G.step()
 
             # Update Discriminator
-            if idx % disc_freq == 0:
+            # if idx % disc_freq == 0:
+            if random.random() < 2/3: 
                 optimizer_D.zero_grad()
                 l_d = run_disc_loss(disc, x, x_hat)
                 nums['l_d'] = l_d
@@ -362,9 +445,9 @@ def get_max_dataset(task, seq_len_p_sec, data_proc):
     
     return dataset
 
-def get_libri_dataset(task, seq_len_p_sec, data_proc):
+def get_libri_dataset(task, seq_len_p_sec, data_folder_path, data_proc):
     
-    dataset = Dataset_Libri(task = task, seq_len_p_sec = seq_len_p_sec, data_proc = data_proc)
+    dataset = Dataset_Libri(task = task, seq_len_p_sec = seq_len_p_sec, data_folder_path = data_folder_path, data_proc = data_proc)
     
     return dataset
 
@@ -426,15 +509,18 @@ if __name__ == '__main__':
     parser.add_argument('--write_on_every', type=int, default=50)  
     parser.add_argument('--dataset', type=str, default='libri')
     parser.add_argument('--data_process', type=str, default='norm')
+    parser.add_argument('--disc_type', type=str, default='default')
 
     # Encoder and decoder
     parser.add_argument('--rep_dims', type=int, default=128)
+    parser.add_argument('--cond_dims', type=int, default=128) # Dimension for RVQ
     parser.add_argument('--quantization', dest='quantization', action='store_true')
     parser.add_argument('--target_bandwidths', nargs='+', type=float, default=[1.5,3,6,12])
     parser.add_argument('--n_filters', type=int, default=32)
     parser.add_argument('--lstm', type=int, default=2)
+    parser.add_argument('--kernel_size', type=int, default=7)
     parser.add_argument('--n_residual_layers', type=int, default=1)
-    parser.add_argument('--ratios', nargs='+', type=int, default=[8,5,4,2])
+    parser.add_argument('--ratios', nargs='+', type=int, default=[8])
     parser.add_argument('--final_activation', type=str, default=None)
 
     # Dist
@@ -449,7 +535,7 @@ if __name__ == '__main__':
     inp_args = parser.parse_args() # Input arguments
     args = get_args() # Enviornmente arguments
     
-    assert not (not inp_args.quantization and inp_args.use_disc)
+    # assert not (not inp_args.quantization and inp_args.use_disc)
     assert not (inp_args.train and inp_args.synthesis)
     
     run_ddp = False #if len(args) == 1 else True

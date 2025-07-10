@@ -48,7 +48,7 @@ class DiscriminatorSTFT(nn.Module):
     """
     def __init__(self, filters: int, in_channels: int = 1, out_channels: int = 1,
                  n_fft: int = 1024, hop_length: int = 256, win_length: int = 1024, max_filters: int = 1024,
-                 filters_scale: int = 1, kernel_size: tp.Tuple[int, int] = (3, 9), dilations: tp.List = [1, 2, 4],
+                 filters_scale: int = 1, kernel_size: tp.Tuple[int, int] = (3, 9), dilations: tp.List = [1, 3, 9],
                  stride: tp.Tuple[int, int] = (1, 2), normalized: bool = True, norm: str = 'weight_norm',
                  activation: str = 'LeakyReLU', activation_params: dict = {'negative_slope': 0.2}):
         super().__init__()
