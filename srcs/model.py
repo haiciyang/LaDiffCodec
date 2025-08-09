@@ -36,7 +36,7 @@ def reshape_to_3dim(x):
 
 class FeatureLearner(nn.Module):
 
-    def __init__(self, quantization=False, target_bandwidths=[1.5, 3, 6, 9, 12], **base_kwargs):
+    def __init__(self, quantization=False, target_bandwidths=[1.5, 3, 6, 9, 12], **base_kwargs): # TODO nearest
         super(). __init__()
 
         self.quantization = quantization
@@ -123,7 +123,7 @@ class DAC(nn.Module):
 
 
 class DiffAudioRep(nn.Module):
-    def __init__(self, discrete_type='Encodec', quantization=False, self_condition=False, other_cond=False, seq_length=320, ratios=[8],scaling_frame=False, scaling_feature=False, scaling_global=False, scaling_dim=False, sampling_timesteps=None, cond_global=1, cond_dims=128, upsampling_ratios=[5, 4, 2], unet_scale_x = False, unet_scale_cond = True, cond_bandwidth=3, **base_kwargs):
+    def __init__(self, discrete_type='Encodec', quantization=False, self_condition=False, other_cond=False, seq_length=320, ratios=[8],scaling_frame=False, scaling_feature=False, scaling_global=False, scaling_dim=False, sampling_timesteps=None, cond_global=1, cond_dims=128, upsampling_ratios=[5, 4, 2], unet_scale_x = False, unet_scale_cond = True, cond_bandwidth=3, continuous_nearest=False,  **base_kwargs):
 
         super(). __init__()
 
@@ -132,12 +132,12 @@ class DiffAudioRep(nn.Module):
         
         ENCODEC_RATIO = [8, 5, 4, 2]
 
-        self.continuous_AE = FeatureLearner(quantization=False, ratios=ratios, **base_kwargs).eval() # Learn discrete features
+        self.continuous_AE = FeatureLearner(quantization=False, ratios=ratios, nearest=continuous_nearest,**base_kwargs).eval() # Learn discrete features
         self.continuous_AE.requires_grad_(False)
         # self.continuous_AE = None
 
         if discrete_type == 'Encodec':
-            self.discrete_AE = FeatureLearner(quantization=True, ratios=ENCODEC_RATIO, cond_dims=cond_dims, **base_kwargs).eval()
+            self.discrete_AE = FeatureLearner(quantization=True, ratios=ENCODEC_RATIO, cond_dims=cond_dims, nearest=False, **base_kwargs).eval() # TODO nearest
             self.discrete_AE.requires_grad_(False)
             # self.discrete_AE = None
         elif discrete_type == "DAC":
@@ -253,7 +253,7 @@ class DiffAudioRep(nn.Module):
             cond = self.get_cond(x)
             # cond = None
             _, scale = self.get_rep(x)      
-        print(torch.max(cond), torch.min(cond), scale)
+        print(torch.max(cond), torch.min(cond), scale) # (15, -14, 1.7)
         
         # ------ rep diff ----- 
         sampled_rep = self.diffusion.sample(batch_size=1, condition=cond)

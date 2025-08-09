@@ -28,8 +28,8 @@ from torch.utils.data.distributed import DistributedSampler
 
 # from ema_pytorch import EMA
 
+from .modules import VanillaVAE
 from .model import FeatureLearner
-from .model_2 import EncodecModel
 from .dataset_max import Dataset_Max
 from .dataset_libri import Dataset_Libri
 from .losses import melspec_loss_fn, sdr_loss
@@ -169,8 +169,12 @@ def run_dac_disc_loss(disc, s, s_hat):
 
 
 def get_model(inp_args):
-    
-    model = FeatureLearner(**vars(inp_args)).to(device)
+    if inp_args.ae_type == 'encodec':
+        model = FeatureLearner(**vars(inp_args)).to(device)
+    elif inp_args.ae_type == 'vanilla-vae':
+        model = VanillaVAE(in_channels = 1, latent_dim = inp_args.rep_dims).to(device)
+    else:
+        raise ValueError(inp_args.ae_type + 'is not supported.')
     
     if inp_args.load_model:
         # load_from_checkpoint(model, f'saved_models/{inp_args.load_model}/model_best.amlt', strict=False)
@@ -322,7 +326,8 @@ def train(inp_args, global_rank):
                 for key, value in val_losses.items():
                     writer.add_scalar('Valid/'+key, value.item(), step)
                     
-            vall = val_losses['neg_sdr'] # negsdr
+            # vall = val_losses['neg_sdr'] # negsdr
+            vall = list(val_losses.values())[0]
             if vall < best_loss:
                 best_loss = vall
                 save_checkpoints(model, inp_args.save_dir, inp_args.exp_name, ema, disc, note='best')
@@ -510,6 +515,7 @@ if __name__ == '__main__':
     parser.add_argument('--dataset', type=str, default='libri')
     parser.add_argument('--data_process', type=str, default='norm')
     parser.add_argument('--disc_type', type=str, default='default')
+    parser.add_argument('--ae_type', type=str, default='encodec')
 
     # Encoder and decoder
     parser.add_argument('--rep_dims', type=int, default=128)

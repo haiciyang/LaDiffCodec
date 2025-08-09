@@ -211,7 +211,7 @@ class SEANetDecoder(nn.Module):
                  final_activation: tp.Optional[str] = None, final_activation_params: tp.Optional[dict] = None,
                  norm: str = 'weight_norm', norm_params: tp.Dict[str, tp.Any] = {}, kernel_size: int = 7,
                  last_kernel_size: int = 7, residual_kernel_size: int = 3, dilation_base: int = 3, causal: bool = False,
-                 pad_mode: str = 'reflect', true_skip: bool = False, compress: int = 2, lstm: int = 2,
+                 pad_mode: str = 'reflect', true_skip: bool = False, compress: int = 2, lstm: int = 2, nearest=False, 
                  trim_right_ratio: float = 1.0, **kwargs):
         super().__init__()
         self.dimension = dimension
@@ -235,20 +235,30 @@ class SEANetDecoder(nn.Module):
         # Upsample to raw audio scale
         for i, ratio in enumerate(self.ratios):
             # Add upsampling layers
+            # if not nearest:              
+                # print('no')
             model += [
-                act(**activation_params),
+                # act(**activation_params),
 
                 # SConvTranspose1d(mult * n_filters, mult * n_filters // 2,
-                #                  kernel_size=ratio * 2, stride=ratio,
-                #                  norm=norm, norm_kwargs=norm_params,
-                                #  causal=causal, trim_right_ratio=trim_right_ratio),
-                # # Add one more cond layers 
+                #                 kernel_size=ratio * 2, stride=ratio,
+                #                 norm=norm, norm_kwargs=norm_params,
+                #                 causal=causal, trim_right_ratio=trim_right_ratio),
+                
+                # Add one more cond layers 
                 # SConv1d(mult * n_filters // 2, mult * n_filters // 2, kernel_size, norm=norm, norm_kwargs=norm_params,
-                #     causal=causal, pad_mode=pad_mode)   
+                    # causal=causal, pad_mode=pad_mode),
 
                 # === Replace transposed conv with nearest upsampling ===
-                Upsample(ratio, mult * n_filters, mult * n_filters // 2)
+                Upsample(ratio, mult * n_filters, mult * n_filters // 2) ## 0627 model
             ]
+
+            # elif nearest:
+            #     print('yes')
+            #     model += [
+            #         # === Replace transposed conv with nearest upsampling ===
+            #         Upsample(ratio, mult * n_filters, mult * n_filters // 2) ## 0627 model
+            #     ]
             
             # Add residual layers
             for j in range(n_residual_layers):

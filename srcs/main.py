@@ -144,18 +144,20 @@ def get_model(inp_args):
     
     model = DiffAudioRep(other_cond=other_cond, **vars(inp_args)).to(device)
     
-    if inp_args.discrete_AE:
-        # load_from_checkpoint(model.discrete_AE, f'saved_models/{inp_args.discrete_AE}/model_best.amlt', strict=False)
-        load_from_checkpoint(model.discrete_AE, inp_args.discrete_AE)
+
     if inp_args.continuous_AE:
         # load_from_checkpoint(model.continuous_AE, f'saved_models/{inp_args.continuous_AE}/model_best.amlt')
         load_from_checkpoint(model.continuous_AE, inp_args.continuous_AE)
-    
+    # fake()
+
+    if inp_args.discrete_AE:
+        # load_from_checkpoint(model.discrete_AE, f'saved_models/{inp_args.discrete_AE}/model_best.amlt', strict=False)
+        load_from_checkpoint(model.discrete_AE, inp_args.discrete_AE)
     if inp_args.load_model:
         # model_path = f'saved_models/{inp_args.load_model}/model_best.amlt'
         model_path = inp_args.load_model
         load_from_checkpoint(model, model_path)
-        
+    # fkae()
     
     return model.to(device)
 
@@ -527,6 +529,7 @@ if __name__ == '__main__':
     parser.add_argument('--discrete_AE', type=str, default='')
     parser.add_argument('--continuous_AE', type=str, default='')
     parser.add_argument('--discrete_type', type=str, default="Encodec")
+    # parser.add_argument('--continuous_nearest', dest='continuous_nearest', action='store_true')
     parser.add_argument('--kernel_size', type=int, default=7)
     parser.add_argument('--rep_dims', type=int, default=128)
     parser.add_argument('--emb_dims', type=int, default=128)
