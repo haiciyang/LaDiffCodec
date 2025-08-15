@@ -504,7 +504,7 @@ if __name__ == '__main__':
     # Data related
     parser.add_argument("--save_dir", type=str, default='saved_models')
     # parser.add_argument("--data_folder_path", type=str, default='/data/hy17/dns_pth/*') # for the dsn data
-    parser.add_argument("--data_folder_path", type=str, default='/data/hy17/librispeech/librispeech')
+    parser.add_argument("--data_folder_path", type=str, default='/N/project/SAIGE_shared/librispeech/')
     parser.add_argument('--seq_len_p_sec', type=float, default=0.) 
     parser.add_argument('--sample_rate', type=int, default=16000)
 

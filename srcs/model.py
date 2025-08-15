@@ -1,8 +1,10 @@
+import json
 import math
-import torch
 import random
 
+import torch
 from torch import nn
+from stable_audio_tools.models import create_model_from_config
 
 from .quantization import ResidualVectorQuantizer
 from .modules import SEANetEncoder, SEANetDecoder, Unet1D, TransformerDDPM, UNet2D
@@ -33,6 +35,32 @@ def reshape_to_3dim(x):
         return x.squeeze(1)
     else:
         raise ValueError('Input has an unexpected shape:', x.shape)
+
+class VAE(nn.Module):
+    def __init__(self, model_config='config/vae_2458.json', ckpt_path='ckpts/VAE_speech_2458.ckpt'):
+        super(). __init__()
+
+        with open(model_config) as f:
+            model_config = json.load(f)
+
+        self.model = create_model_from_config(model_config)
+        state_dict = torch.load(ckpt_path)['state_dict']
+        self.model.load_state_dict(state_dict, strict=True)
+
+    def encode(self, x):
+
+        assert len(x.shape) == 3
+        latents, encoder_info = self.model.encode(x, return_info=True)
+        return latents
+
+    def decode(self, latents):
+
+        decoded = self.model.decode(latents)
+        return decoded
+
+    def forward(self, x):
+        assert len(x.shape) == 3
+        return self.decode(self.encode(x))
 
 class FeatureLearner(nn.Module):
 
@@ -76,7 +104,7 @@ class FeatureLearner(nn.Module):
         else:
             return {'neg_sdr': neg_sdr, "qtz_loss": torch.tensor(0), 'l_t': l_t, 'l_f': l_f}, x_hat
 
-    def get_feature(self, x, bandwidth=None):
+    def encode(self, x, bandwidth=None):
         
         x_rep = self.encoder(x)
         if self.quantization:
@@ -110,7 +138,7 @@ class DAC(nn.Module):
     def get_num_qtz(self, bandwidth):
         return int(bandwidth * 1000 / math.log2(self.CARDINALITY) / self.FRAME_RATE)
 
-    def get_feature(self, x: torch.Tensor, bandwidth=3):
+    def encode(self, x: torch.Tensor, bandwidth=3):
         
         n_quantizers = self.get_num_qtz(bandwidth)
         codes = self.model.encode(x)[1] # return shape (bt, 12, L/320); 12 is the total num of codebooks
@@ -123,7 +151,7 @@ class DAC(nn.Module):
 
 
 class DiffAudioRep(nn.Module):
-    def __init__(self, discrete_type='Encodec', quantization=False, self_condition=False, other_cond=False, seq_length=320, ratios=[8],scaling_frame=False, scaling_feature=False, scaling_global=False, scaling_dim=False, sampling_timesteps=None, cond_global=1, cond_dims=128, upsampling_ratios=[5, 4, 2], unet_scale_x = False, unet_scale_cond = True, cond_bandwidth=3, continuous_nearest=False,  **base_kwargs):
+    def __init__(self, discrete_type='Encodec', continuous_type='VAE', quantization=False, self_condition=False, other_cond=False, seq_length=320, ratios=[8],scaling_frame=False, scaling_feature=False, scaling_global=False, scaling_dim=False, sampling_timesteps=None, cond_global=1, cond_dims=128, upsampling_ratios=[5, 4, 2], unet_scale_x = False, unet_scale_cond = True, cond_bandwidth=3, continuous_nearest=False,  **base_kwargs):
 
         super(). __init__()
 
@@ -132,19 +160,23 @@ class DiffAudioRep(nn.Module):
         
         ENCODEC_RATIO = [8, 5, 4, 2]
 
-        self.continuous_AE = FeatureLearner(quantization=False, ratios=ratios, nearest=continuous_nearest,**base_kwargs).eval() # Learn discrete features
+        if continuous_type == 'AE':
+            self.continuous_AE = FeatureLearner(quantization=False, ratios=ratios, nearest=continuous_nearest,**base_kwargs)
+        elif continuous_type == "VAE":
+            self.continuous_AE = VAE()
+        else:
+            raise ValueError('Unsupported discrete autoencoder type.')
+        self.continuous_AE.eval()
         self.continuous_AE.requires_grad_(False)
-        # self.continuous_AE = None
 
         if discrete_type == 'Encodec':
             self.discrete_AE = FeatureLearner(quantization=True, ratios=ENCODEC_RATIO, cond_dims=cond_dims, nearest=False, **base_kwargs).eval() # TODO nearest
-            self.discrete_AE.requires_grad_(False)
-            # self.discrete_AE = None
         elif discrete_type == "DAC":
             self.discrete_AE = DAC().eval()
-            self.discrete_AE.requires_grad_(False)
         else:
             raise ValueError('Unsupported discrete autoencoder type.')
+        self.discrete_AE.requires_grad_(False)
+
 
         self.scaling_frame = scaling_frame
         self.scaling_feature = scaling_feature
@@ -183,13 +215,13 @@ class DiffAudioRep(nn.Module):
     
     def get_cond(self, x):
         if self.discrete_AE:
-            return self.discrete_AE.get_feature(x, bandwidth=self.cond_bandwidth)
+            return self.discrete_AE.encode(x, bandwidth=self.cond_bandwidth)
         else: # Unconditionl model - not a codec
             return None
     
     def get_rep(self, x):
         if self.continuous_AE:
-            x_rep = self.continuous_AE.get_feature(x)
+            x_rep = self.continuous_AE.encode(x)
             x_rep, scale = self.scaling(x_rep, global_max=18.0)
             return x_rep, scale
         else:
@@ -203,6 +235,11 @@ class DiffAudioRep(nn.Module):
         # x_hat = self.discrete_AE.decoder(in_dec) # learn discrete features
 
     def forward(self, x, t=None):  
+        
+        # import torchaudio
+        # test_out = self.continuous_AE(x)
+        # torchaudio.save('test_continous_AE.wav', test_out[0].squeeze(1).cpu(), 16000)
+        # fake()
         
         with torch.no_grad():
             cond = self.get_cond(x)
@@ -220,7 +257,6 @@ class DiffAudioRep(nn.Module):
         neg_sdr = sdr_loss(x, x_hat).mean()
         
         return {'diff_loss': diff_loss, 'neg_sdr': neg_sdr}, x_hat, rep, predicted_x_start, *other_reps_from_diff, scale
-
 
     @torch.no_grad()
     def run_continuous_ae(self, x):
