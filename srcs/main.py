@@ -34,7 +34,7 @@ from .model import DiffAudioRep
 from .dataset_libri import Dataset_Libri
 from .dataset_max import Dataset_Max
 from .msstftd import MultiScaleSTFTDiscriminator as MSDisc
-from .dacdisc import Discriminator as DACDisc
+# from .dacdisc import Discriminator as DACDisc
 
 print('All package loaded.')
 

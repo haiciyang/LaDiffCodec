@@ -238,19 +238,19 @@ class SEANetDecoder(nn.Module):
             # if not nearest:              
                 # print('no')
             model += [
-                # act(**activation_params),
+                act(**activation_params),
 
-                # SConvTranspose1d(mult * n_filters, mult * n_filters // 2,
-                #                 kernel_size=ratio * 2, stride=ratio,
-                #                 norm=norm, norm_kwargs=norm_params,
-                #                 causal=causal, trim_right_ratio=trim_right_ratio),
+                SConvTranspose1d(mult * n_filters, mult * n_filters // 2,
+                                kernel_size=ratio * 2, stride=ratio,
+                                norm=norm, norm_kwargs=norm_params,
+                                causal=causal, trim_right_ratio=trim_right_ratio),
                 
                 # Add one more cond layers 
                 # SConv1d(mult * n_filters // 2, mult * n_filters // 2, kernel_size, norm=norm, norm_kwargs=norm_params,
                     # causal=causal, pad_mode=pad_mode),
 
                 # === Replace transposed conv with nearest upsampling ===
-                Upsample(ratio, mult * n_filters, mult * n_filters // 2) ## 0627 model
+                # Upsample(ratio, mult * n_filters, mult * n_filters // 2) ## 0627 model
             ]
 
             # elif nearest:

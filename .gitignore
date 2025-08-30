@@ -28,3 +28,4 @@ srcs/bigRedScript.txt
 srcs/modules/transformer_discrete.py
 srcs/script.txt
 srcs/**/__pycache__/
+ckpts/
