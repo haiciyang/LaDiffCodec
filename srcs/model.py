@@ -9,6 +9,7 @@ from stable_audio_tools.models import create_model_from_config
 from .quantization import ResidualVectorQuantizer
 from .modules import SEANetEncoder, SEANetDecoder, Unet1D, TransformerDDPM, UNet2D
 from .losses import GaussianDiffusion1D, prior_loss_fn, sdr_loss, melspec_loss_fn, DenoiseDiffusion
+from .utils import load_from_checkpoint
 
 use_cuda = torch.cuda.is_available()
 device = torch.device("cuda" if use_cuda else "cpu")
@@ -62,24 +63,43 @@ class VAE(nn.Module):
         assert len(x.shape) == 3
         return self.decode(self.encode(x))
 
-class FeatureLearner(nn.Module):
+class Encodec(nn.Module):
+    def __init__(self, model_config='config/discrete.json', ckpt_path='saved_models/discrete_AE.amlt'): # TODO nearest
+        super(). __init__()
+        with open(model_config) as f:
+            model_config = json.load(f)
 
-    def __init__(self, quantization=False, target_bandwidths=[1.5, 3, 6, 9, 12], **base_kwargs): # TODO nearest
+        self.model = FeatureLearner(model_config)
+        load_from_checkpoint(self.model, ckpt_path)
+    
+    def forward(self, x, bandwidth=None):
+        return self.model(x, bandwidth)
+
+    def encode(self, x, bandwidth=None):
+        return self.model.encode(x, bandwidth)
+    
+    def decode(self, x):
+        return self.model.decode(x)
+
+
+class FeatureLearner(nn.Module):
+    # def __init__(self, quantization=False, target_bandwidths=[1.5, 3, 6, 9, 12], **base_kwargs): # TODO nearest
+    def __init__(self, model_config): # TODO nearest
         super(). __init__()
 
-        self.quantization = quantization
-        self.sample_rate = base_kwargs['sample_rate'] 
-        self.target_bandwidths = target_bandwidths
+        self.quantization = model_config['quantization']
+        self.sample_rate = model_config['sample_rate'] 
+        self.target_bandwidths = model_config['target_bandwidths']
 
-        self.encoder = SEANetEncoder(channels=1, dimension=base_kwargs['rep_dims'], last_kernel_size=base_kwargs['kernel_size'], **base_kwargs)
-        self.decoder = SEANetDecoder(channels=1, dimension=base_kwargs['rep_dims'], last_kernel_size=base_kwargs['kernel_size'], **base_kwargs) 
+        self.encoder = SEANetEncoder(**model_config)
+        self.decoder = SEANetDecoder(**model_config) 
         
-        if quantization:
-            print('bandwidth:', target_bandwidths)
+        if self.quantization:
+            print('bandwidth:', self.target_bandwidths)
 
             self.frame_rate = self.sample_rate/self.encoder.hop_length
-            n_q = int(1000 * target_bandwidths[-1] // (math.ceil(self.frame_rate) * 10)) # Total number of quantizer needed
-            self.quantizer = ResidualVectorQuantizer(dimension=base_kwargs['cond_dims'], n_q=n_q)
+            n_q = int(1000 * self.target_bandwidths[-1] // (math.ceil(self.frame_rate) * 10)) # Total number of quantizer needed
+            self.quantizer = ResidualVectorQuantizer(dimension=model_config['dimension'], n_q=n_q)
 
     def forward(self, x, bandwidth=None):
         
@@ -151,7 +171,7 @@ class DAC(nn.Module):
 
 
 class DiffAudioRep(nn.Module):
-    def __init__(self, discrete_type='Encodec', continuous_type='VAE', quantization=False, self_condition=False, other_cond=False, seq_length=320, ratios=[8],scaling_frame=False, scaling_feature=False, scaling_global=False, scaling_dim=False, sampling_timesteps=None, cond_global=1, cond_dims=128, upsampling_ratios=[5, 4, 2], unet_scale_x = False, unet_scale_cond = True, cond_bandwidth=3, continuous_nearest=False,  **base_kwargs):
+    def __init__(self, discrete_type='Encodec', continuous_type='VAE_2458', inp_channels=128, quantization=False, self_condition=False, other_cond=False, seq_length=320, ratios=[8],scaling_frame=False, scaling_feature=False, scaling_global=False, scaling_dim=False, sampling_timesteps=None, cond_global=1, cond_dims=128, upsampling_ratios=[5, 4, 2], unet_scale_x = False, unet_scale_cond = True, cond_bandwidth=3, continuous_nearest=False,  **base_kwargs):
 
         super(). __init__()
 
@@ -162,15 +182,18 @@ class DiffAudioRep(nn.Module):
 
         if continuous_type == 'AE':
             self.continuous_AE = FeatureLearner(quantization=False, ratios=ratios, nearest=continuous_nearest,**base_kwargs)
-        elif continuous_type == "VAE":
-            self.continuous_AE = VAE()
+        elif continuous_type == "VAE_8":
+            self.continuous_AE = VAE(model_config='config/vae_8.json', ckpt_path='ckpts/VAE_speech_8.ckpt')
+        elif continuous_type == "VAE_2458":
+            self.continuous_AE = VAE(model_config='config/vae_2458.json', ckpt_path='ckpts/VAE_speech_2458.ckpt')
         else:
             raise ValueError('Unsupported discrete autoencoder type.')
         self.continuous_AE.eval()
         self.continuous_AE.requires_grad_(False)
 
         if discrete_type == 'Encodec':
-            self.discrete_AE = FeatureLearner(quantization=True, ratios=ENCODEC_RATIO, cond_dims=cond_dims, nearest=False, **base_kwargs).eval() # TODO nearest
+            # self.discrete_AE = FeatureLearner(quantization=True, ratios=ENCODEC_RATIO, cond_dims=cond_dims, nearest=False, **base_kwargs).eval() # TODO nearest
+            self.discrete_AE = Encodec().eval() # TODO nearest
         elif discrete_type == "DAC":
             self.discrete_AE = DAC().eval()
         else:
@@ -185,7 +208,7 @@ class DiffAudioRep(nn.Module):
         self.cond_global = cond_global
         self.unet_scale_x = unet_scale_x
         
-        diff_backbone = Unet1D(dim = base_kwargs['diff_dims'], dim_mults=(1, 2, 2, 4, 4), inp_channels=base_kwargs['rep_dims'], self_condition=self_condition, other_cond=other_cond, scaling_frame=scaling_frame, scaling_feature=scaling_feature, scaling_global=scaling_global, scaling_dim=scaling_dim, cond_global=cond_global, cond_channels=cond_dims, upsampling_ratios=upsampling_ratios, unet_scale_x=unet_scale_x, unet_scale_cond=unet_scale_cond)
+        diff_backbone = Unet1D(dim = base_kwargs['diff_dims'], dim_mults=(1, 2, 2, 4, 4), inp_channels=inp_channels, self_condition=self_condition, other_cond=other_cond, scaling_frame=scaling_frame, scaling_feature=scaling_feature, scaling_global=scaling_global, scaling_dim=scaling_dim, cond_global=cond_global, cond_channels=cond_dims, upsampling_ratios=upsampling_ratios, unet_scale_x=unet_scale_x, unet_scale_cond=unet_scale_cond)
 
         self.diffusion = GaussianDiffusion1D(model=diff_backbone, seq_length=seq_length, sampling_timesteps=sampling_timesteps)              
 
@@ -243,8 +266,11 @@ class DiffAudioRep(nn.Module):
         
         with torch.no_grad():
             cond = self.get_cond(x)
+            # print(torch.max(cond), torch.min(cond))
             # cond = None
             rep, scale = self.get_rep(x)
+            # print(torch.max(rep), torch.min(rep))
+            # fake()
        
         rep = reshape_to_3dim(rep)
         diff_loss, predicted_x_start, *other_reps_from_diff = self.diffusion(rep.detach(), cond, t=t) 
@@ -312,10 +338,22 @@ class DiffAudioRep(nn.Module):
 
 if __name__ == '__main__':
 
-    dAR = DiffAudioRep()
+    # dAR = DiffAudioRep()
 
-    x = torch.rand(10, 128, 256)
-    l = dAR.diff_loss(x)
+    # x = torch.rand(10, 128, 256)
+    # l = dAR.diff_loss(x)
+
+    # --- test encodec class ---
+    # codec = Encodec()
+    vae = VAE(model_config='config/vae_8.json', ckpt_path='ckpts/VAE_speech_8.ckpt')
+    import torchaudio
+    audio, sr = torchaudio.load('eval_wavs/1_x.wav')
+    output = vae(audio.unsqueeze(0))
+
+    torchaudio.save("test_vae.wav", audio, sr)
+
+
+
     
 
 

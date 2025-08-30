@@ -388,10 +388,13 @@ class Unet1D(nn.Module):
 
     def forward(self, x, time, x_cond = None):
 
+        # print(x.shape)
+        # print(x_cond.shape)
+
         if self.self_condition:
             x_self_cond = default(x_cond, lambda: torch.zeros_like(x))
             x = torch.cat((x_self_cond, x), dim = 1)
-        
+
         elif exists(x_cond):
             if x_cond.shape[-1] < x.shape[-1]:
                 for layer in self.upsampling_layers:
@@ -404,6 +407,10 @@ class Unet1D(nn.Module):
                 
             if self.unet_scale_x: 
                 x, _ = self.scaling(x, global_max=self.cond_global)
+
+        # print(x.shape)
+        # print(x_cond.shape)
+        # fake()
 
         x = self.init_conv(x)
         r = x.clone()
@@ -438,6 +445,8 @@ class Unet1D(nn.Module):
             x = attn(x)
             x = upsample(x)
             # print(x.shape)
+        
+        # fake()
 
         x = torch.cat((x, r), dim = 1)
 

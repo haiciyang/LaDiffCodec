@@ -61,7 +61,9 @@ class ClippedSDR(nn.Module):
         self.clip_value = float(clip_value)
 
     def forward(self, est_targets, targets):
-
+        minlength = min(est_targets.shape[-1], targets.shape[-1])
+        est_targets = est_targets[..., :minlength]
+        targets = targets[..., :minlength]
         return torch.clamp(self.snr(est_targets, targets), min=self.clip_value)
 
 

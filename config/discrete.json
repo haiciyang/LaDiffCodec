@@ -1,0 +1,16 @@
+{
+    "channel": 1,
+    "kernel_size": 7,
+    "last_kernel_size": 7,
+    "dimension": 128, 
+    "bandwidth": 3.0,
+    "n_filters": 32, 
+    "lstm": 2,
+    "n_residual_layers": 1,
+    "ratios": [8, 5, 4, 2],
+    "final_activation": null,
+
+    "quantization": true,
+    "target_bandwidths":[1.5, 3, 6, 9, 12],
+    "sample_rate": 16000
+}

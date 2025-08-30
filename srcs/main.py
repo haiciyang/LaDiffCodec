@@ -143,22 +143,20 @@ def get_model(inp_args):
     other_cond = True
     
     model = DiffAudioRep(other_cond=other_cond, **vars(inp_args)).to(device)
-    
 
-    if inp_args.continuous_AE:
-        # load_from_checkpoint(model.continuous_AE, f'saved_models/{inp_args.continuous_AE}/model_best.amlt')
-        load_from_checkpoint(model.continuous_AE, inp_args.continuous_AE)
-    # fake()
+    # if inp_args.continuous_AE:
+    #     # load_from_checkpoint(model.continuous_AE, f'saved_models/{inp_args.continuous_AE}/model_best.amlt')
+    #     load_from_checkpoint(model.continuous_AE, inp_args.continuous_AE)
+    # # fake()
+    # if inp_args.discrete_AE:
+    #     # load_from_checkpoint(model.discrete_AE, f'saved_models/{inp_args.discrete_AE}/model_best.amlt', strict=False)
+    #     load_from_checkpoint(model.discrete_AE, inp_args.discrete_AE)
 
-    if inp_args.discrete_AE:
-        # load_from_checkpoint(model.discrete_AE, f'saved_models/{inp_args.discrete_AE}/model_best.amlt', strict=False)
-        load_from_checkpoint(model.discrete_AE, inp_args.discrete_AE)
     if inp_args.load_model:
         # model_path = f'saved_models/{inp_args.load_model}/model_best.amlt'
         model_path = inp_args.load_model
         load_from_checkpoint(model, model_path)
-    # fkae()
-    
+
     return model.to(device)
 
 
@@ -526,23 +524,12 @@ if __name__ == '__main__':
     parser.add_argument('--train_time_diff', dest='train_time_diff', action='store_true')
 
     # Encoder and decoder
-    parser.add_argument('--discrete_AE', type=str, default='')
-    parser.add_argument('--continuous_AE', type=str, default='')
+    parser.add_argument('--continuous_type', type=str, default="VAE")
     parser.add_argument('--discrete_type', type=str, default="Encodec")
-    # parser.add_argument('--continuous_nearest', dest='continuous_nearest', action='store_true')
-    parser.add_argument('--kernel_size', type=int, default=7)
-    parser.add_argument('--rep_dims', type=int, default=128)
-    parser.add_argument('--emb_dims', type=int, default=128)
-    parser.add_argument('--quantization', dest='quantization', action='store_true')
-    parser.add_argument('--bandwidth', type=float, default=3.0)
-    parser.add_argument('--n_filters', type=int, default=32)
-    parser.add_argument('--lstm', type=int, default=2)
-    parser.add_argument('--n_residual_layers', type=int, default=1)
-    parser.add_argument('--ratios', nargs='+', type=int, default=[8])
-    parser.add_argument('--upsampling_ratios', nargs='+', type=int, default=[5, 4, 2])
-    parser.add_argument('--final_activation', type=str, default=None)
     
     # Diff model
+    parser.add_argument('--upsampling_ratios', nargs='+', type=int, default=[5, 4, 2])
+    parser.add_argument('--inp_channels', type=int, default=128) # The previous rep_dim
     parser.add_argument('--model_type', type=str, default='unet')  
     parser.add_argument('--diff_dims', type=int, default=128)
     parser.add_argument('--self_condition', dest='self_condition', action='store_true')
@@ -554,13 +541,6 @@ if __name__ == '__main__':
     parser.add_argument('--use_film', dest='use_film', action='store_true')
     parser.add_argument('--unet_scale_cond', dest='unet_scale_cond', action='store_true')
     parser.add_argument('--unet_scale_x', dest='unet_scale_x', action='store_true')
-
-    # Cond model
-    # parser.add_argument('--cond_quantization', dest='cond_quantization', action='store_true')
-    parser.add_argument('--cond_dims', type=int, default=128)
-    parser.add_argument('--target_bandwidths', nargs='+', type=float, default=[1.5,3,6,9,12])
-    parser.add_argument('--cond_bandwidth', type=float, default=None)
-    # parser.add_argument('--cond_global', type=float, default=1)
     
     # Dist
     parser.add_argument('--use_disc', dest='use_disc', action='store_true')
