@@ -58,8 +58,8 @@ class Residual(nn.Module):
 def Upsample(dim, dim_out = None):
     return nn.Sequential(
         nn.Upsample(scale_factor = 2, mode = 'nearest'),
-        # nn.Conv1d(dim, default(dim_out, dim), 3, padding = 1),
-        nn.Conv1d(dim, default(dim_out, dim), 7, padding = 3),
+        nn.Conv1d(dim, default(dim_out, dim), 3, padding = 1),
+        # nn.Conv1d(dim, default(dim_out, dim), 7, padding = 3),
         nn.SiLU()
     )
 
@@ -356,7 +356,7 @@ class Unet1D(nn.Module):
                 block_klass(dim_out + dim_in, dim_out, time_emb_dim = time_dim),
                 block_klass(dim_out + dim_in, dim_out, time_emb_dim = time_dim, use_film = use_film),
                 Residual(PreNorm(dim_out, LinearAttention(dim_out))),
-                Upsample(dim_out, dim_in) if not is_last else  nn.Conv1d(dim_out, dim_in, 3, padding = 1)
+                Upsample(dim_out, dim_in) if not is_last else nn.Conv1d(dim_out, dim_in, 3, padding = 1)
             ]))
 
         default_out_dim = inp_channels * (1 if not learned_variance else 2)
@@ -371,8 +371,8 @@ class Unet1D(nn.Module):
             self.upsampling_layers = nn.ModuleList([])
             for r in ratios:
                 self.upsampling_layers.append(
-                    # SConvTranspose1d(cond_channels, cond_channels, kernel_size = r*2, stride=r, causal=False, trim_right_ratio=True))
-                    UpsampleTranspose1d(cond_channels, cond_channels, kernel_size = r*2, stride=r, causal=False, trim_right_ratio=True))
+                    SConvTranspose1d(cond_channels, cond_channels, kernel_size = r*2, stride=r, causal=False, trim_right_ratio=True))
+                    # UpsampleTranspose1d(cond_channels, cond_channels, kernel_size = r*2, stride=r, causal=False, trim_right_ratio=True))
 
 
     def feature_scaling(self, x_rep, global_max=1):
