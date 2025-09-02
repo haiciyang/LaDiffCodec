@@ -164,7 +164,7 @@ def get_disc(inp_args):
 
     if inp_args.use_disc:
         # if inp_args.disc_type == 'default':
-        disc = MSDisc(filters=32).cuda(gpu_rank)
+        disc = MSDisc(filters=32)
         if inp_args.load_model:
             load_from_checkpoint(disc, inp_args.load_model + '/disc_best.amlt')
         return disc.to(device)
@@ -242,9 +242,9 @@ def synthesis(inp_args):
             #     pass
 
 
-def train(inp_args, global_rank):
+def train(inp_args, global_rank, local_rank):
     
-    if not inp_args.debug:
+    if not inp_args.debug and global_rank == 0:
         log_params(vars(inp_args), inp_args.exp_name)
     
     if not inp_args.debug and global_rank == 0:
@@ -265,18 +265,19 @@ def train(inp_args, global_rank):
     else:
         raise ValueError('Invalid dataset type.')
         
-    if run_ddp:
+    if inp_args.run_ddp:
         train_sampler = DistributedSampler(dataset=train_dataset, shuffle=True) 
         valid_sampler = DistributedSampler(dataset=valid_dataset, shuffle=True) 
         train_loader = DataLoader(train_dataset, batch_size=inp_args.batch_size, sampler=train_sampler, pin_memory=True)
         valid_loader = DataLoader(valid_dataset, batch_size=inp_args.batch_size, sampler=valid_sampler, pin_memory=True)
         
         torch.manual_seed(global_rank)  
-        torch.cuda.set_device(gpu_rank)
+        torch.cuda.set_device(local_rank)
     else:
         train_loader = DataLoader(train_dataset, batch_size=inp_args.batch_size, pin_memory=True, num_workers=4)
         valid_loader = DataLoader(valid_dataset, batch_size=inp_args.batch_size, pin_memory=True, num_workers=4)
-        gpu_rank = 0
+        global_rank = 0
+        local_rank = 0
 
 
     model = get_model(inp_args)
@@ -289,10 +290,10 @@ def train(inp_args, global_rank):
     optimizer_G = optim.Adam(model.parameters(), lr=inp_args.lr)
     optimizer_D = optim.Adam(disc.parameters(), lr=3e-4, betas=(0.5, 0.9)) if inp_args.use_disc else None
 
-    if run_ddp:
-        model = nn.parallel.DistributedDataParallel(model, device_ids=[gpu_rank], find_unused_parameters=True)   
+    if inp_args.run_ddp:
+        model = nn.parallel.DistributedDataParallel(model, device_ids=[local_rank], find_unused_parameters=True)   
         if inp_args.use_disc:
-            disc = nn.parallel.DistributedDataParallel(disc, device_ids=[gpu_rank])
+            disc = nn.parallel.DistributedDataParallel(disc, device_ids=[local_rank])
 
     # run = Run.get_context()
     best_loss = torch.tensor(float('inf'))
@@ -302,7 +303,7 @@ def train(inp_args, global_rank):
     while step < 1000000:
         if step == 0:
             print('Starts training ...')
-        if run_ddp:
+        if inp_args.run_ddp:
             train_loader.sampler.set_epoch(step)
             
         model.train()
@@ -506,7 +507,9 @@ if __name__ == '__main__':
     parser.add_argument('--seq_len_p_sec', type=float, default=0.) 
     parser.add_argument('--sample_rate', type=int, default=16000)
 
+
     # Training
+    parser.add_argument('--run_ddp', dest='run_ddp', action='store_true')
     parser.add_argument('--train', dest='train', action='store_true')
     parser.add_argument('--synthesis', dest='synthesis', action='store_true')
     
@@ -524,12 +527,13 @@ if __name__ == '__main__':
     parser.add_argument('--train_time_diff', dest='train_time_diff', action='store_true')
 
     # Encoder and decoder
-    parser.add_argument('--continuous_type', type=str, default="VAE")
+    parser.add_argument('--continuous_type', type=str, default="VAE_8")
     parser.add_argument('--discrete_type', type=str, default="Encodec")
     
     # Diff model
     parser.add_argument('--upsampling_ratios', nargs='+', type=int, default=[5, 4, 2])
     parser.add_argument('--inp_channels', type=int, default=128) # The previous rep_dim
+    parser.add_argument('--cond_channels', type=int, default=128) # The previous cond_dim
     parser.add_argument('--model_type', type=str, default='unet')  
     parser.add_argument('--diff_dims', type=int, default=128)
     parser.add_argument('--self_condition', dest='self_condition', action='store_true')
@@ -561,30 +565,37 @@ if __name__ == '__main__':
     
     # inp_args.seq_length = inp_args.seq_len_p_sec * inp_args.sample_rate / np.prod(inp_args.ratios)
     
-    run_ddp = False #if len(args) == 1 else True
+    # run_ddp = False #if len(args) == 1 else True
 
-    if run_ddp:
-        master_uri = "tcp://%s:%s" % (args.get("MASTER_ADDR"), args.get("MASTER_PORT"))
-        os.environ["NCCL_DEBUG"] = "WARN"
-        node_rank = args.get("NODE_RANK")
+    # if inp_args.run_ddp:
+        # master_uri = "tcp://%s:%s" % (args.get("MASTER_ADDR"), args.get("MASTER_PORT"))
+        # os.environ["NCCL_DEBUG"] = "WARN"
+        # node_rank = args.get("NODE_RANK")
 
-        os.environ['TORCH_DISTRIBUTED_DEBUG'] = 'INFO'
+        # os.environ['TORCH_DISTRIBUTED_DEBUG'] = 'INFO'
 
-        gpus_per_node = torch.cuda.device_count()
-        world_size = args.get("WORLD_SIZE")
-        gpu_rank = args.get("LOCAL_RANK")
-        # if inp_args.debug:
-        node_rank = 0 #tmp
-        global_rank = node_rank * gpus_per_node + gpu_rank
-        dist.init_process_group(
-            backend="nccl", init_method=master_uri, world_size=world_size, rank=global_rank
-        )
-        # synchronizes all the threads to reach this point before moving on
-        dist.barrier()
+        # gpus_per_node = torch.cuda.device_count()
+        # world_size = args.get("WORLD_SIZE")
+        # gpu_rank = args.get("LOCAL_RANK")
+        # # if inp_args.debug:
+        # node_rank = 0 #tmp
+        # global_rank = node_rank * gpus_per_node + gpu_rank
+        # dist.init_process_group(
+        #     backend="nccl", init_method=master_uri, world_size=world_size, rank=global_rank
+        # )
+        # # synchronizes all the threads to reach this point before moving on
+        # dist.barrier()
+
+    if inp_args.run_ddp:
+        dist.init_process_group("nccl")
+        global_rank = dist.get_rank()
+        local_rank = global_rank % torch.cuda.device_count()
+        print(f"Start running basic DDP example on rank {global_rank}, local rank {local_rank}.")
     else:
+        local_rank = 0
         global_rank = 0
 
     if inp_args.train:
-        train(inp_args, global_rank)
+        train(inp_args, global_rank, local_rank)
     if inp_args.synthesis:
         synthesis(inp_args)
