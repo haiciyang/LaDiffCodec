@@ -10,7 +10,8 @@ saved_models/
 logs/
 eval_wavs/
 output_wavs/
-scripts.txt
+scripts_v2.txt
+scripts_v3.txt
 srcs/run_pesq.py
 srcs/sample_extractor.py
 srcs/sample_from_valid_data.py
