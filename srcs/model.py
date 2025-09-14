@@ -193,7 +193,11 @@ class DiffAudioRep(nn.Module):
 
         if discrete_type == 'Encodec':
             # self.discrete_AE = FeatureLearner(quantization=True, ratios=ENCODEC_RATIO, cond_dims=cond_dims, nearest=False, **base_kwargs).eval() # TODO nearest
-            self.discrete_AE = Encodec().eval() # TODO nearest
+            # self.discrete_AE = Encodec().eval() # TODO nearest
+            from audiocraft.models import CompressionModel
+            self.discrete_AE = CompressionModel.get_pretrained('ckpts/compression_state_dict.bin')
+            print(self.discrete_AE)
+            fake()
         elif discrete_type == "DAC":
             self.discrete_AE = DAC().eval()
         else:
