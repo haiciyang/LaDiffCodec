@@ -196,30 +196,13 @@ def synthesis(inp_args):
     with torch.no_grad():
         for wav_file in tqdm(glob.glob(os.path.join(inp_args.input_dir, '**/*.wav'), recursive=True)):
         
-            # filename = wav_file.split('/')[-1][:-4]
             filename = wav_file[len(inp_args.input_dir):][:-4]
             save_path = inp_args.output_dir + filename
 
-            
-            # out_dir_full = inp_args.output_dir + '_full'
-            # out_dir_infill = inp_args.output_dir + '_infill'
-            # if not os.path.exists(out_dir_infill):
-            #     os.mkdir(out_dir_infill)
-            # if not os.path.exists(out_dir_full):
-            #     os.mkdir(out_dir_full)
-            
-            # save_path_full = out_dir_full + filename
-            # full_folder = save_path_full[: -(len(save_path_full.split('/')[-1])+1)]
-            # if not os.path.exists(full_folder):
-            #     os.mkdir(full_folder)
-                
-            # save_path_fill = out_dir_infill + filename
             folder = save_path[: -(len(save_path.split('/')[-1])+1)]
             if not os.path.exists(folder):
                 os.makedirs(folder)
             
-            # print(wav_file)
-            # try:
             wav, sr = torchaudio.load(wav_file)
             wav = torchaudio.functional.resample(wav, orig_freq=sr, new_freq=16000)
             wav = wav.unsqueeze(1).to(torch.float).to(device)
@@ -232,16 +215,9 @@ def synthesis(inp_args):
             wav = wav[:, :, :length]
             seq_length = int(wav.shape[-1] / np.prod(inp_args.ratios))
             
-            # x_scale_sample, x_sample_infill = model.sample(wav, seq_length, midway_t, lam)
-            x_sample_infill = model.sample(wav, seq_length, midway_t, lam)
+            output = model.sample(wav, seq_length, midway_t, lam, inp_args.orig_sampling)
 
-            # torchaudio.save(os.path.join(out_dir, f'{filename}_{inp_args.cond_bandwidth}_{inp_args.load_model}_full.wav'), x_scale_sample.squeeze(1).cpu(), 16000)
-            # torchaudio.save(os.path.join(out_dir, f'{filename}_{inp_args.cond_bandwidth}_{inp_args.load_model}_infill.wav'), x_sample_infill.squeeze(1).cpu(), 16000)
-            
-            # torchaudio.save(f'{save_path_full}.wav', x_scale_sample.squeeze(1).cpu(), 16000)
-            torchaudio.save(f'{save_path}.wav', x_sample_infill.squeeze(1).cpu(), 16000)
-            # except:
-            #     pass
+            torchaudio.save(f'{save_path}.wav', output.squeeze(1).cpu(), 16000)
 
 
 def train(inp_args, global_rank):
@@ -567,10 +543,12 @@ if __name__ == '__main__':
     parser.add_argument('--disc_freq', type=int, default=1)
     
     # Synthesis
+    parser.add_argument('--orig_sampling', dest='orig_sampling', action='store_true')
     parser.add_argument('--midway_t', type=int, default=100)
     parser.add_argument('--lam', type=float, default=0.1)
     parser.add_argument('--input_dir', type=str, default='eval_wavs/')
     parser.add_argument('--output_dir', type=str, default='output_wavs/')
+
     
     inp_args = parser.parse_args() # Input arguments
     # args = get_args() # Enviornmente arguments

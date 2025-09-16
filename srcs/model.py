@@ -162,7 +162,7 @@ class DiffAudioRep(nn.Module):
 
         B, C, L = x_rep.shape
         
-        scale = None
+        scale = 1
         if self.scaling_frame:
             # ---- Scaling for every frames -----
             scale, _ = torch.max(torch.abs(x_rep), 1, keepdim=True)
@@ -206,7 +206,6 @@ class DiffAudioRep(nn.Module):
         
         with torch.no_grad():
             cond = self.get_cond(x)
-            # cond = None
             rep, scale = self.get_rep(x)
        
         rep = reshape_to_3dim(rep)
@@ -233,8 +232,7 @@ class DiffAudioRep(nn.Module):
         return self.discrete_AE(x) 
 
     @torch.no_grad()
-    def sample(self, x, seq_length, sample_type='', midway_t = 100, lam = 0.1):
-
+    def sample(self, x, seq_length, midway_t = 100, lam = 0.1, orig_sampling=False):
 
         ######## DEBUGGING PURPOSE ##########
 
@@ -253,25 +251,25 @@ class DiffAudioRep(nn.Module):
             cond = self.get_cond(x)
             # cond = None
             _, scale = self.get_rep(x)      
-        print(torch.max(cond), torch.min(cond), scale) # (15, -14, 1.7)
+        # print(torch.max(cond), torch.min(cond), scale) # (15, -14, 1.7)
         
-        # ------ rep diff ----- 
-        sampled_rep = self.diffusion.sample(batch_size=1, condition=cond)
-        print(torch.max(sampled_rep), torch.min(sampled_rep))
-
-        x_scale_sample = self.decode(sampled_rep * scale)
-        return x_scale_sample
-
-        # # ----- Infilling ----
-        # infill_img = cond
-        # for layer in self.diffusion.model.upsampling_layers:
-        #     infill_img = layer(infill_img)
-        # infill_img = infill_img / torch.max(torch.abs(infill_img.flatten())) + 1e-8
-
-        # sample = self.diffusion.infilling(infill_img = infill_img, condition=cond, midway_t=midway_t, lam=lam)
-        # x_sample_infill = self.continuous_AE.decoder(sample * scale)
         
-        # return  x_sample_infill   
+        if orig_sampling: 
+            # ------ rep diff ----- 
+            sampled_rep = self.diffusion.sample(batch_size=1, condition=cond)
+            output = self.decode(sampled_rep * scale)
+        else:
+            # ----- Infilling (Default) ---- 
+            infill_img = cond
+            for layer in self.diffusion.model.upsampling_layers:
+                infill_img = layer(infill_img)
+            infill_img = infill_img / torch.max(torch.abs(infill_img.flatten())) + 1e-8
+
+            sample = self.diffusion.infilling(infill_img = infill_img, condition=cond, midway_t=midway_t, lam=lam)
+            output = self.continuous_AE.decoder(sample * scale)
+            
+        return output
+
     
 
 if __name__ == '__main__':
