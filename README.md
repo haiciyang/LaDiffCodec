@@ -28,4 +28,7 @@ Librispeech
 We provided a pretrained LaDiffCodec checkpoint with scalable bitrates at [link](https://indiana-my.sharepoint.com/:f:/g/personal/hy17_iu_edu/Eo9tTiag-u9JtkswVUr5wWIBKrA6hyEJx-TTF2USOGsSVQ?e=MDPijk). The bitrates can be chosen from 1.5kbps, 3kbps, 6kbps, 9kbps, 12kbps.
 
 To use the pretrained models -   
-<code>python -m srcs.main --synthesis --load_model [path]/diffusor.amlt --continuous_AE [path]/continuous_AE.amlt  --discrete_AE [path]/discrete_AE.amlt --cond_bandwidth [BANDWIDTH] --scaling_feature --diff_dims 256 --input_dir [INPUT_DIR] --output_dir [OUTPUT_DIR]  </code>
+<code>python -m srcs.main --synthesis --load_model [path]/0907_diffusor.amlt --continuous_AE [path]/continuous_AE.amlt --discrete_AE [path]/discrete_AE.amlt --cond_bandwidth [BANDWIDTH] --diff_dims 256 --input_dir [INPUT_DIR] --output_dir [OUTPUT_DIR] --orig_sampling </code>
+
+You can also remove <code>--orig_sampling</code> to use midway infilling for a much faster sampling, with a slight compromise to the quality.
+
