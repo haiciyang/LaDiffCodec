@@ -1,3 +1,7 @@
+require-short.txt
+test.wav
+test_enc_official.wav
+test_encodec.py
 sbatch_printout/
 srcs/balancer.py
 srcs/dacdisc.py

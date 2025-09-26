@@ -63,6 +63,28 @@ class VAE(nn.Module):
         assert len(x.shape) == 3
         return self.decode(self.encode(x))
 
+class Encodec_official(nn.Module):
+    def __init__(self, ckpt_path='ckpts/compression_state_dict.bin'):
+        super(). __init__()
+        from audiocraft.models import CompressionModel
+        self.model = CompressionModel.get_pretrained(ckpt_path)
+
+        self.frame_rate = 50
+    
+    def forward(self, x):
+        pass
+
+    def encode(self, x, bandwidth=None):
+
+        emb = self.model.encoder(x)
+        q_res = self.model.quantizer(emb, self.frame_rate)
+
+        return q_res.x
+    
+    def decode(self, quantized):
+        return self.model.decoder(quantized)
+
+
 class Encodec(nn.Module):
     def __init__(self, model_config='config/discrete.json', ckpt_path='saved_models/discrete_AE.amlt'): # TODO nearest
         super(). __init__()
@@ -194,10 +216,8 @@ class DiffAudioRep(nn.Module):
         if discrete_type == 'Encodec':
             # self.discrete_AE = FeatureLearner(quantization=True, ratios=ENCODEC_RATIO, cond_dims=cond_dims, nearest=False, **base_kwargs).eval() # TODO nearest
             # self.discrete_AE = Encodec().eval() # TODO nearest
-            from audiocraft.models import CompressionModel
-            self.discrete_AE = CompressionModel.get_pretrained('ckpts/compression_state_dict.bin')
-            print(self.discrete_AE)
-            fake()
+
+            self.discrete_AE = Encodec_official().eval()
         elif discrete_type == "DAC":
             self.discrete_AE = DAC().eval()
         else:
@@ -277,6 +297,7 @@ class DiffAudioRep(nn.Module):
             # fake()
        
         rep = reshape_to_3dim(rep)
+
         diff_loss, predicted_x_start, *other_reps_from_diff = self.diffusion(rep.detach(), cond, t=t) 
         in_dec = predicted_x_start * scale if scale is not None else predicted_x_start
         
@@ -348,14 +369,27 @@ if __name__ == '__main__':
     # l = dAR.diff_loss(x)
 
     # --- test encodec class ---
-    # codec = Encodec()
-    vae = VAE(model_config='config/vae_8.json', ckpt_path='ckpts/VAE_speech_8.ckpt')
+
+    # # codec = Encodec()
+    # vae = VAE(model_config='config/vae_8.json', ckpt_path='ckpts/VAE_speech_8.ckpt')
+    # import torchaudio
+    # audio, sr = torchaudio.load('eval_wavs/1_x.wav')
+    # output = vae(audio.unsqueeze(0))
+
+    # torchaudio.save("test_vae.wav", audio, sr)
+
+    # ----- Test Encodec Official ------
     import torchaudio
-    audio, sr = torchaudio.load('eval_wavs/1_x.wav')
-    output = vae(audio.unsqueeze(0))
+    codec = Encodec_official().to('cuda').eval()
+    data, sr = torchaudio.load('eval_wavs/1_x.wav')
+    data = data.unsqueeze(1).to('cuda')
 
-    torchaudio.save("test_vae.wav", audio, sr)
+    with torch.no_grad():
+        emb = codec.encode(data)
+        print(emb.shape)
+        y = codec.decode(emb)
 
+    torchaudio.save("test_enc_official.wav", y[0].cpu(), sr)
 
 
     
