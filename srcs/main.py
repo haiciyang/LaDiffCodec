@@ -228,7 +228,9 @@ def synthesis(inp_args):
                 
             length = wav.shape[-1]//640*640
             wav = wav[:, :, :length]
-            seq_length = int(wav.shape[-1] / np.prod(inp_args.ratios))
+
+            seq_length = int(wav.shape[-1] / 8)
+            # seq_length = int(wav.shape[-1] / np.prod(inp_args.ratios)) # TODO
             
             # x_scale_sample, x_sample_infill = model.sample(wav, seq_length, midway_t, lam)
             x_sample_infill = model.sample(wav, seq_length, midway_t, lam)
@@ -291,7 +293,7 @@ def train(inp_args, global_rank, local_rank):
     optimizer_D = optim.Adam(disc.parameters(), lr=3e-4, betas=(0.5, 0.9)) if inp_args.use_disc else None
 
     if inp_args.run_ddp:
-        model = nn.parallel.DistributedDataParallel(model, device_ids=[local_rank], find_unused_parameters=True)   
+        model = nn.parallel.DistributedDataParallel(model, device_ids=[local_rank], find_unused_parameters=False)   
         if inp_args.use_disc:
             disc = nn.parallel.DistributedDataParallel(disc, device_ids=[local_rank])
 

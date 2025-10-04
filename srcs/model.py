@@ -2,12 +2,13 @@ import json
 import math
 import random
 
+
 import torch
 from torch import nn
 from stable_audio_tools.models import create_model_from_config
 
 from .quantization import ResidualVectorQuantizer
-from .modules import SEANetEncoder, SEANetDecoder, Unet1D, TransformerDDPM, UNet2D
+from .modules import SEANetEncoder, SEANetDecoder, Unet1D, TransformerDDPM, UNet2D, AE
 from .losses import GaussianDiffusion1D, prior_loss_fn, sdr_loss, melspec_loss_fn, DenoiseDiffusion
 from .utils import load_from_checkpoint
 
@@ -63,9 +64,58 @@ class VAE(nn.Module):
         assert len(x.shape) == 3
         return self.decode(self.encode(x))
 
+class Encodec_AE(nn.Module):
+    def __init__(self, model_config=None, sample_rate=16000, ckpt_path='ckpts/ae_compression_state_dict.bin'):
+        super(). __init__()
+
+        # encoder = SEANetEncoder(**model_config)
+        # decoder = SEANetDecoder(**model_config) 
+
+        if model_config is None:
+            model_config={
+                "ratios":[8], 
+                "n_residual_layers": 1,
+                "lstm": 2,
+                "norm" : 'weight_norm',
+                "pad_mode": "constant"
+            }
+
+        import audiocraft 
+        encoder = audiocraft.modules.SEANetEncoder(**model_config)
+        decoder = audiocraft.modules.SEANetDecoder(**model_config)
+
+        # frame_rate = kwargs["sample_rate"] // encoder.hop_length
+        # renormalize = kwargs.pop("renormalize", False)
+
+        self.model = AE(
+            encoder = encoder,
+            decoder = decoder,
+            frame_rate = 50,  # Hard-coded for now
+            renormalize = False, 
+            channels = 1,
+            sample_rate = sample_rate
+        )
+        # print(self.model)
+        pkt = torch.load(ckpt_path)
+        # print(pkt['xp.cfg'])
+        # fake()
+        self.model.load_state_dict(pkt['best_state'])
+
+    def encode(self, x):
+        emb, scale = self.model.encode(x)
+        return emb
+    
+    def decode(self, emb):
+        return self.model.decode(emb)
+    
+    def forward(self, x):
+        return self.decode(self.encode(x))
+              
+
 class Encodec_official(nn.Module):
     def __init__(self, ckpt_path='ckpts/compression_state_dict.bin'):
         super(). __init__()
+
         from audiocraft.models import CompressionModel
         self.model = CompressionModel.get_pretrained(ckpt_path)
 
@@ -203,7 +253,8 @@ class DiffAudioRep(nn.Module):
         ENCODEC_RATIO = [8, 5, 4, 2]
 
         if continuous_type == 'AE':
-            self.continuous_AE = FeatureLearner(quantization=False, ratios=ratios, nearest=continuous_nearest,**base_kwargs)
+            # self.continuous_AE = FeatureLearner(quantization=False, ratios=ratios, nearest=continuous_nearest,**base_kwargs)
+            self.continuous_AE = Encodec_AE()
         elif continuous_type == "VAE_8":
             self.continuous_AE = VAE(model_config='config/vae_8.json', ckpt_path='ckpts/VAE_speech_8.ckpt')
         elif continuous_type == "VAE_2458":
@@ -216,14 +267,12 @@ class DiffAudioRep(nn.Module):
         if discrete_type == 'Encodec':
             # self.discrete_AE = FeatureLearner(quantization=True, ratios=ENCODEC_RATIO, cond_dims=cond_dims, nearest=False, **base_kwargs).eval() # TODO nearest
             # self.discrete_AE = Encodec().eval() # TODO nearest
-
             self.discrete_AE = Encodec_official().eval()
         elif discrete_type == "DAC":
             self.discrete_AE = DAC().eval()
         else:
             raise ValueError('Unsupported discrete autoencoder type.')
         self.discrete_AE.requires_grad_(False)
-
 
         self.scaling_frame = scaling_frame
         self.scaling_feature = scaling_feature
@@ -241,7 +290,7 @@ class DiffAudioRep(nn.Module):
 
         B, C, L = x_rep.shape
         
-        scale = None
+        scale = 1
         if self.scaling_frame:
             # ---- Scaling for every frames -----
             scale, _ = torch.max(torch.abs(x_rep), 1, keepdim=True)

@@ -1,5 +1,5 @@
 require-short.txt
-test.wav
+*.wav
 test_enc_official.wav
 test_encodec.py
 sbatch_printout/

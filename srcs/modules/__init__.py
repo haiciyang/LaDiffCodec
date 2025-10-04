@@ -27,4 +27,5 @@ from .unet import Unet1D
 from .unet2d import UNet2D
 from .transformer import TransformerDDPM
 from .vanilla_vae import VanillaVAE
+from .encodec_ae import AE
 # from .transformer_discrete import Transformer
