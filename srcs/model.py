@@ -49,6 +49,10 @@ class VAE(nn.Module):
         state_dict = torch.load(ckpt_path)['state_dict']
         self.model.load_state_dict(state_dict, strict=True)
 
+    @property
+    def compression_rate(self):
+        return 320
+
     def encode(self, x):
 
         assert len(x.shape) == 3
@@ -100,6 +104,10 @@ class Encodec_AE(nn.Module):
         # print(pkt['xp.cfg'])
         # fake()
         self.model.load_state_dict(pkt['best_state'])
+    
+    @property
+    def compression_rate(self):
+        return 8
 
     def encode(self, x):
         emb, scale = self.model.encode(x)
@@ -369,7 +377,7 @@ class DiffAudioRep(nn.Module):
         return self.discrete_AE(x) 
 
     @torch.no_grad()
-    def sample(self, x, seq_length, sample_type='', midway_t = 100, lam = 0.1):
+    def sample(self, x, seq_length, sample_type='', midway_t = 100, lam = 0.1, clip_denoised=True):
 
 
         ######## DEBUGGING PURPOSE ##########
@@ -384,15 +392,16 @@ class DiffAudioRep(nn.Module):
         lam = 0.1
         
         self.diffusion.seq_length = seq_length
-        
+
         with torch.no_grad():
             cond = self.get_cond(x)
             # cond = None
-            _, scale = self.get_rep(x)      
+            x_rep, scale = self.get_rep(x)      
+        
         print(torch.max(cond), torch.min(cond), scale) # (15, -14, 1.7)
         
         # ------ rep diff ----- 
-        sampled_rep = self.diffusion.sample(batch_size=1, condition=cond)
+        sampled_rep = self.diffusion.sample(batch_size=1, condition=cond, clip_denoised=clip_denoised)
         print(torch.max(sampled_rep), torch.min(sampled_rep))
 
         x_scale_sample = self.decode(sampled_rep * scale)

@@ -226,14 +226,12 @@ def synthesis(inp_args):
                 length = int(inp_args.seq_len_p_sec * sr)
                 wav = wav[:, :, :length]
                 
-            length = wav.shape[-1]//640*640
+            length = wav.shape[-1]//5120*5120
             wav = wav[:, :, :length]
 
-            seq_length = int(wav.shape[-1] / 8)
-            # seq_length = int(wav.shape[-1] / np.prod(inp_args.ratios)) # TODO
+            seq_length = int(wav.shape[-1] / model.continuous_AE.compression_rate) # TODO
             
-            # x_scale_sample, x_sample_infill = model.sample(wav, seq_length, midway_t, lam)
-            x_sample_infill = model.sample(wav, seq_length, midway_t, lam)
+            x_sample_infill = model.sample(wav, seq_length, midway_t, lam, clip_denoised=True)
 
             # torchaudio.save(os.path.join(out_dir, f'{filename}_{inp_args.cond_bandwidth}_{inp_args.load_model}_full.wav'), x_scale_sample.squeeze(1).cpu(), 16000)
             # torchaudio.save(os.path.join(out_dir, f'{filename}_{inp_args.cond_bandwidth}_{inp_args.load_model}_infill.wav'), x_sample_infill.squeeze(1).cpu(), 16000)

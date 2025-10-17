@@ -55,9 +55,9 @@ class Residual(nn.Module):
     def forward(self, x, *args, **kwargs):
         return self.fn(x, *args, **kwargs) + x
 
-def Upsample(dim, dim_out = None):
+def Upsample(dim, dim_out=None, scale_factor=2):
     return nn.Sequential(
-        nn.Upsample(scale_factor = 2, mode = 'nearest'),
+        nn.Upsample(scale_factor = scale_factor, mode = 'nearest'),
         # nn.Conv1d(dim, default(dim_out, dim), 3, padding = 1),
         nn.Conv1d(dim, default(dim_out, dim), 7, padding = 3),
         nn.SiLU()
@@ -372,7 +372,9 @@ class Unet1D(nn.Module):
             for r in ratios:
                 self.upsampling_layers.append(
                     # SConvTranspose1d(cond_channels, cond_channels, kernel_size = r*2, stride=r, causal=False, trim_right_ratio=True))
-                    UpsampleTranspose1d(cond_channels, cond_channels, kernel_size = r*2, stride=r, causal=False, trim_right_ratio=True))
+                    # UpsampleTranspose1d(cond_channels, cond_channels, kernel_size = r*2, stride=r, causal=False, trim_right_ratio=True)
+                    Upsample(cond_channels, cond_channels, scale_factor=r)
+                )
 
 
     def feature_scaling(self, x_rep, global_max=1):
@@ -407,10 +409,6 @@ class Unet1D(nn.Module):
                 
             if self.unet_scale_x: 
                 x, _ = self.scaling(x, global_max=self.cond_global)
-
-        # print(x.shape)
-        # print(x_cond.shape)
-        # fake()
 
         x = self.init_conv(x)
         r = x.clone()
