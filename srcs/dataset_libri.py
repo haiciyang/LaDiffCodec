@@ -58,7 +58,7 @@ class Dataset_Libri(Dataset):
             raise ValueError('Invalid task')
         
         
-        self.files = glob.glob(path)[:10000]
+        self.files = glob.glob(path)#[:10000]
 
         self.signal_max = []
         self.length_sec = []

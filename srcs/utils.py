@@ -252,6 +252,26 @@ def save_audio(wav: torch.Tensor, path: tp.Union[Path, str],
     torchaudio.save(str(path), wav, sample_rate=sample_rate, encoding='PCM_S', bits_per_sample=16)
 
 
+def gaussian_kl_diag(mu_q: torch.Tensor,
+                     var_q: torch.Tensor,
+                     mu_p: torch.Tensor,
+                     var_p: torch.Tensor) -> torch.Tensor:
+        """
+        KL(N(mu_q, var_q I) || N(mu_p, var_p I)) computed per sample, take mean over data dims.
+        - mu_q, mu_p: (B, *data_shape)
+        - var_q, var_p: either scalars or tensors shape (T,) or (B,1,1,...)
+        Returns: kl: (B,) per-sample KL (scalar per example)
+        """
+
+        # KL = 0.5 * ( log(var_p/var_q) + (var_q/var_p) + (mu_p-mu_q)^2 / var_p - 1).sum_over_dims
+        kl = 0.5 * (torch.log(var_p / var_q) + (var_q + (mu_p - mu_q) ** 2) / var_p - 1)
+        
+        return torch.mean(kl)
+
+
+
+
+
 """ END - utils.py functions from the original encodec repo """
 
 

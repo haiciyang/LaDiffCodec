@@ -85,7 +85,7 @@ class GaussianDiffusion1D(nn.Module):
         sampling_timesteps = None,
         loss_type = 'l1',
         objective = 'pred_noise',
-        beta_schedule = 'cosine',
+        beta_schedule = 'cosine', # TODO, changed from cosine to linear on 11/8
         p2_loss_weight_gamma = 0.,
         p2_loss_weight_k = 1,
         ddim_sampling_eta = 0.,
@@ -196,11 +196,13 @@ class GaussianDiffusion1D(nn.Module):
             extract(self.sqrt_one_minus_alphas_cumprod, t, x_t.shape) * v
         )
 
-    def q_posterior(self, x_start, x_t, t):
+    def q_posterior(self, x_start, x_t, t): # q(x_{t-1}| x_t, x_0)
+
         posterior_mean = (
             extract(self.posterior_mean_coef1, t, x_t.shape) * x_start +
             extract(self.posterior_mean_coef2, t, x_t.shape) * x_t
         )
+
         posterior_variance = extract(self.posterior_variance, t, x_t.shape)
         posterior_log_variance_clipped = extract(self.posterior_log_variance_clipped, t, x_t.shape)
         return posterior_mean, posterior_variance, posterior_log_variance_clipped
@@ -212,6 +214,7 @@ class GaussianDiffusion1D(nn.Module):
         if self.objective == 'pred_noise':
             pred_noise = model_output
             x_start = self.predict_start_from_noise(x, t, pred_noise)
+
             x_start = maybe_clip(x_start)
 
             if clip_x_start and rederive_pred_noise:
@@ -230,7 +233,7 @@ class GaussianDiffusion1D(nn.Module):
 
         return ModelPrediction(pred_noise, x_start)
 
-    def p_mean_variance(self, x, t, condition = None, clip_denoised = True):
+    def p_mean_variance(self, x, t, condition = None, clip_denoised = True): # p_theta(x_{t-1}|x_t)
         preds = self.model_predictions(x, t, condition)
         x_start = preds.pred_x_start
 
@@ -238,17 +241,18 @@ class GaussianDiffusion1D(nn.Module):
             x_start.clamp_(-1., 1.)
 
         model_mean, posterior_variance, posterior_log_variance = self.q_posterior(x_start = x_start, x_t = x, t = t)
-        
-        return model_mean, posterior_variance, posterior_log_variance, x_start
+
+        return model_mean, posterior_variance, posterior_log_variance, x_start, preds.pred_noise
 
     @torch.no_grad()
     def p_sample(self, x, t: int, condition = None, clip_denoised = True):
         b, *_, device = *x.shape, x.device
         batched_times = torch.full((b,), t, device = x.device, dtype = torch.long)
-        model_mean, _, model_log_variance, x_start = self.p_mean_variance(x = x, t = batched_times, condition = condition, clip_denoised = clip_denoised)
+        model_mean, posterior_variance, model_log_variance, x_start, pred_noise = self.p_mean_variance(x = x, t = batched_times, condition = condition, clip_denoised = clip_denoised)
         noise = torch.randn_like(x) if t > 0 else 0. # no noise if t == 0
         pred_img = model_mean + (0.5 * model_log_variance).exp() * noise
-        return pred_img, x_start
+
+        return pred_img, x_start, model_mean, posterior_variance, pred_noise
 
     @torch.no_grad()
     def p_sample_loop(self, shape, condition=None, clip_denoised = True):
@@ -258,13 +262,27 @@ class GaussianDiffusion1D(nn.Module):
 
         x_start = None
 
+        means = []
+        vars = []
+        pred_noises = []
+        imgs = []
+
         # for t in tqdm(reversed(range(0, self.num_timesteps)), desc = 'sampling loop time step', total = self.num_timesteps):
         for t in reversed(range(0, self.num_timesteps)):
             cond = x_start if self.self_condition else condition
-            img, x_start = self.p_sample(img, t, cond, clip_denoised)
+            imgs.append(img)
+            img, x_start, model_mean, posterior_variance, pred_noise = self.p_sample(img, t, cond, clip_denoised)
+
+            # Save means and variance for p_theta(x_{t-1}|x_t)
+            means.append(model_mean)
+            vars.append(posterior_variance) 
+            pred_noises.append(pred_noise)
+            
+            # if t == self.num_timesteps-2:
+            #     break
 
         # img = self.unnormalize(img)
-        return img
+        return img, means, vars, pred_noises, imgs
 
     @torch.no_grad()
     def ddim_sample(self, shape, condition=None, clip_denoised = True):
@@ -450,3 +468,4 @@ class GaussianDiffusion1D(nn.Module):
 
         # x = self.normalize(x)
         return *self.p_losses(x, t, cond, *args, **kwargs), t
+

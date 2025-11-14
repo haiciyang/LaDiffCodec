@@ -10,7 +10,7 @@ from stable_audio_tools.models import create_model_from_config
 from .quantization import ResidualVectorQuantizer
 from .modules import SEANetEncoder, SEANetDecoder, Unet1D, TransformerDDPM, UNet2D, AE
 from .losses import GaussianDiffusion1D, prior_loss_fn, sdr_loss, melspec_loss_fn, DenoiseDiffusion
-from .utils import load_from_checkpoint
+from .utils import load_from_checkpoint, gaussian_kl_diag
 
 use_cuda = torch.cuda.is_available()
 device = torch.device("cuda" if use_cuda else "cpu")
@@ -18,7 +18,6 @@ device = torch.device("cuda" if use_cuda else "cpu")
 
 def exists(x):
     return x is not None
-
 
 def reshape_to_4dim(x):
 
@@ -53,36 +52,37 @@ class VAE(nn.Module):
     def compression_rate(self):
         return 320
 
+    @torch.no_grad()
     def encode(self, x):
 
         assert len(x.shape) == 3
         latents, encoder_info = self.model.encode(x, return_info=True)
         return latents
-
+    @torch.no_grad()
     def decode(self, latents):
 
         decoded = self.model.decode(latents)
         return decoded
-
+    @torch.no_grad()
     def forward(self, x):
         assert len(x.shape) == 3
         return self.decode(self.encode(x))
 
 class Encodec_AE(nn.Module):
-    def __init__(self, model_config=None, sample_rate=16000, ckpt_path='ckpts/ae_compression_state_dict.bin'):
+    def __init__(self, ratios=[8], sample_rate=16000, ckpt_path='ckpts/ae_compression_state_dict.bin'):
         super(). __init__()
 
         # encoder = SEANetEncoder(**model_config)
         # decoder = SEANetDecoder(**model_config) 
 
-        if model_config is None:
-            model_config={
-                "ratios":[8], 
-                "n_residual_layers": 1,
-                "lstm": 2,
-                "norm" : 'weight_norm',
-                "pad_mode": "constant"
-            }
+        model_config={
+            "ratios":ratios, 
+            "n_residual_layers": 1,
+            "lstm": 2,
+            "norm" : 'weight_norm',
+            "pad_mode": "constant"
+        }
+        self.ratios = ratios
 
         import audiocraft 
         encoder = audiocraft.modules.SEANetEncoder(**model_config)
@@ -100,22 +100,26 @@ class Encodec_AE(nn.Module):
             sample_rate = sample_rate
         )
         # print(self.model)
+        if ratios == [8]: # [8]
+            ckpt_path = 'ckpts/ae_compression_state_dict.bin'
+        elif ratios == [8, 5, 4, 2]: 
+            ckpt_path = 'ckpts/ae8542_compression_state_dict.bin'
+
         pkt = torch.load(ckpt_path)
-        # print(pkt['xp.cfg'])
-        # fake()
         self.model.load_state_dict(pkt['best_state'])
     
     @property
     def compression_rate(self):
-        return 8
+        return torch.prod(torch.tensor(self.ratios))
 
+    @torch.no_grad()
     def encode(self, x):
         emb, scale = self.model.encode(x)
         return emb
-    
+    @torch.no_grad()
     def decode(self, emb):
         return self.model.decode(emb)
-    
+    @torch.no_grad()
     def forward(self, x):
         return self.decode(self.encode(x))
               
@@ -132,13 +136,18 @@ class Encodec_official(nn.Module):
     def forward(self, x):
         pass
 
-    def encode(self, x, bandwidth=None):
+    @torch.no_grad()
+    def encode(self, x, bandwidth=1.5):
+
+        n_q = int(bandwidth * 1000 / (self.frame_rate * 10)) # 10 is log2(1024)
+        self.model.quantizer.n_q = n_q
 
         emb = self.model.encoder(x)
         q_res = self.model.quantizer(emb, self.frame_rate)
 
         return q_res.x
     
+    @torch.no_grad()
     def decode(self, quantized):
         return self.model.decoder(quantized)
 
@@ -251,36 +260,46 @@ class DAC(nn.Module):
 
 
 class DiffAudioRep(nn.Module):
-    def __init__(self, discrete_type='Encodec', continuous_type='VAE_2458', inp_channels=128, quantization=False, self_condition=False, other_cond=False, seq_length=320, ratios=[8],scaling_frame=False, scaling_feature=False, scaling_global=False, scaling_dim=False, sampling_timesteps=None, cond_global=1, cond_channels=128, upsampling_ratios=[5, 4, 2], unet_scale_x = False, unet_scale_cond = True, cond_bandwidth=3, continuous_nearest=False,  **base_kwargs):
+    def __init__(self, discrete_type='Encodec', continuous_type='VAE_2458', inp_channels=128, quantization=False, self_condition=False, other_cond=False, seq_length=320, ratios=[8],scaling_frame=False, scaling_feature=False, scaling_global=False, scaling_dim=False, sampling_timesteps=None, cond_global=1, cond_channels=128, upsampling_ratios=[5, 4, 2], unet_scale_x = False, unet_scale_cond = True, cond_bandwidth=3, continuous_nearest=False, multi_cond=False, **base_kwargs):
 
         super(). __init__()
 
         self.quantization = quantization
         self.cond_bandwidth = cond_bandwidth
+        self.multi_cond = multi_cond
         
         ENCODEC_RATIO = [8, 5, 4, 2]
 
         if continuous_type == 'AE':
             # self.continuous_AE = FeatureLearner(quantization=False, ratios=ratios, nearest=continuous_nearest,**base_kwargs)
-            self.continuous_AE = Encodec_AE()
+            self.continuous_AE = Encodec_AE(ratios=ratios)
         elif continuous_type == "VAE_8":
             self.continuous_AE = VAE(model_config='config/vae_8.json', ckpt_path='ckpts/VAE_speech_8.ckpt')
         elif continuous_type == "VAE_2458":
             self.continuous_AE = VAE(model_config='config/vae_2458.json', ckpt_path='ckpts/VAE_speech_2458.ckpt')
         else:
-            raise ValueError('Unsupported discrete autoencoder type.')
+            raise ValueError('Unsupported continuous autoencoder type.')
+        
         self.continuous_AE.eval()
         self.continuous_AE.requires_grad_(False)
 
+        other_cond = True
         if discrete_type == 'Encodec':
             # self.discrete_AE = FeatureLearner(quantization=True, ratios=ENCODEC_RATIO, cond_dims=cond_dims, nearest=False, **base_kwargs).eval() # TODO nearest
             # self.discrete_AE = Encodec().eval() # TODO nearest
             self.discrete_AE = Encodec_official().eval()
+            self.discrete_AE.requires_grad_(False)
+            
         elif discrete_type == "DAC":
             self.discrete_AE = DAC().eval()
+            self.discrete_AE.requires_grad_(False)
+        elif discrete_type == "":
+            self.discrete_AE = None
+            other_cond = False
+            print('Running unconditional model')
         else:
             raise ValueError('Unsupported discrete autoencoder type.')
-        self.discrete_AE.requires_grad_(False)
+        
 
         self.scaling_frame = scaling_frame
         self.scaling_feature = scaling_feature
@@ -317,9 +336,28 @@ class DiffAudioRep(nn.Module):
 
         return x_rep, scale
     
-    def get_cond(self, x):
+    def get_bandwidth_by_step(self, t):
+
+        COND_STEP = [0.5, 1, 1.5, 3, 4.5, 6, 9, 12]
+        SAMPLING_STEP = [632, 534, 475, 378, 326, 291, 246, 218]
+
+        assert len(COND_STEP) == len(SAMPLING_STEP)
+
+        for i, step in enumerate(SAMPLING_STEP):
+            if t >= step:
+                break
+        return COND_STEP[i]
+        
+    
+    def get_cond(self, x, t):
+
+        if self.multi_cond:
+            bandwidth = self.get_bandwidth_by_step(t)
+        else:
+            bandwidth = self.cond_bandwidth
+        
         if self.discrete_AE:
-            return self.discrete_AE.encode(x, bandwidth=self.cond_bandwidth)
+            return self.discrete_AE.encode(x, bandwidth=bandwidth)
         else: # Unconditionl model - not a codec
             return None
     
@@ -339,21 +377,20 @@ class DiffAudioRep(nn.Module):
         # x_hat = self.discrete_AE.decoder(in_dec) # learn discrete features
 
     def forward(self, x, t=None):  
-        
-        # import torchaudio
-        # test_out = self.continuous_AE(x)
-        # torchaudio.save('test_continous_AE.wav', test_out[0].squeeze(1).cpu(), 16000)
-        # fake()
-        
+
+        if self.multi_cond:
+            t = torch.randint(0, self.diffusion.num_timesteps, (1,), device=device).long()
+
         with torch.no_grad():
-            cond = self.get_cond(x)
-            # print(torch.max(cond), torch.min(cond))
-            # cond = None
+            cond = self.get_cond(x, t)
             rep, scale = self.get_rep(x)
-            # print(torch.max(rep), torch.min(rep))
-            # fake()
        
         rep = reshape_to_3dim(rep)
+
+        if t is not None:
+            t = t.expand(x.shape[0],)
+            # print(t.shape)
+            # fake()
 
         diff_loss, predicted_x_start, *other_reps_from_diff = self.diffusion(rep.detach(), cond, t=t) 
         in_dec = predicted_x_start * scale if scale is not None else predicted_x_start
@@ -396,16 +433,17 @@ class DiffAudioRep(nn.Module):
         with torch.no_grad():
             cond = self.get_cond(x)
             # cond = None
-            x_rep, scale = self.get_rep(x)      
-        
-        print(torch.max(cond), torch.min(cond), scale) # (15, -14, 1.7)
+            x_rep, scale = self.get_rep(x) #[1, 64, 160]  
+
+        # print(torch.max(cond), torch.min(cond), scale) # (15, -14, 1.7)
         
         # ------ rep diff ----- 
-        sampled_rep = self.diffusion.sample(batch_size=1, condition=cond, clip_denoised=clip_denoised)
-        print(torch.max(sampled_rep), torch.min(sampled_rep))
+        sampled_rep, means, vars, pred_noises, x_ts  = self.diffusion.sample(batch_size=1, condition=cond, clip_denoised=clip_denoised)
 
+        # print(torch.max(sampled_rep), torch.min(sampled_rep))
+        entropy_step = self.compute_entropy(x_rep, means, vars, pred_noises, x_ts)
         x_scale_sample = self.decode(sampled_rep * scale)
-        return x_scale_sample
+        return x_scale_sample, entropy_step
 
         # # ----- Infilling ----
         # infill_img = cond
@@ -416,7 +454,65 @@ class DiffAudioRep(nn.Module):
         # sample = self.diffusion.infilling(infill_img = infill_img, condition=cond, midway_t=midway_t, lam=lam)
         # x_sample_infill = self.continuous_AE.decoder(sample * scale)
         
-        # return  x_sample_infill   
+        # return  x_sample_infill  
+
+    def compute_entropy(self, x_start, means, vars, pred_noises,x_ts):
+        
+        print('Computing entropy ... ')
+
+        from .calculate_entropy import compute_ddpm_elbo_batch
+        ent = []
+        sum_all = 0
+        for i, t in enumerate(reversed(range(1, self.diffusion.num_timesteps))):
+
+            t = torch.tensor([t,]).to(x_start.device).long()
+            x_t = self.diffusion.q_sample(x_start, t)
+            # posterior_mean, posterior_variance, _ = self.diffusion.q_posterior(x_start, x_t, t)
+            # print(torch.mean(posterior_mean), torch.mean(posterior_variance), torch.mean(means[i]), torch.mean(vars[i]))
+            # input_x_t = (x_t + x_ts[i])/2
+            kl = compute_ddpm_elbo_batch(
+                x0 = x_start, 
+                x_t = x_ts[i], # Using the same x_t for both true and predicted posterior
+                # x_t_pred = x_ts[i],
+                t = t,
+                betas = self.diffusion.betas,
+                model_output = pred_noises[i],
+                mode = "eps",   # "eps" or "mu"
+                sigma_special_default = "tilde_beta",
+            )
+            # print(kl['L_t'], torch.mean(kl['mu_p']), torch.mean(kl['mu_q']), torch.mean((kl['mu_p']-kl['mu_q'])**2), kl['var_q'])
+            print(kl['L_t'], torch.mean((kl['mu_p']-kl['mu_q'])**2), kl['var_q'])
+            sum_all += kl['L_t']
+            ent.append(kl['L_t'])
+        
+        print(sum_all)
+
+        return ent
+        
+
+        # ents = []
+
+        # for i in range(len(means)):
+            
+        #     pred_means = means[i] # torch.Size([1, 64, 160]) 
+        #     pred_vars = vars[i]   # torch.Size([1, 1, 1])
+
+        #     t = torch.tensor([self.diffusion.num_timesteps-i-1,]).to(x_start.device)
+        #     x_t = self.diffusion.q_sample(x_start, t)
+        #     posterior_mean, posterior_variance, _ = self.diffusion.q_posterior(x_start, x_t, t)
+
+        #     # print(torch.mean((pred_means - posterior_mean)**2))
+        #     # print(posterior_variance)
+        #     entropy = gaussian_kl_diag(posterior_mean, posterior_variance, pred_means, pred_vars)
+        #     print(entropy)
+        #     ents.append(entropy)
+        # # fake()
+        
+        
+        return ents
+
+
+
     
 
 if __name__ == '__main__':
@@ -437,24 +533,26 @@ if __name__ == '__main__':
     # torchaudio.save("test_vae.wav", audio, sr)
 
     # ----- Test Encodec Official ------
-    import torchaudio
-    codec = Encodec_official().to('cuda').eval()
-    data, sr = torchaudio.load('eval_wavs/1_x.wav')
-    data = data.unsqueeze(1).to('cuda')
+    # import torchaudio
+    # codec = Encodec_official().to('cuda').eval()
+    # data, sr = torchaudio.load('eval_wavs/1_x.wav')
+    # data = data.unsqueeze(1).to('cuda')
 
-    with torch.no_grad():
-        emb = codec.encode(data)
-        print(emb.shape)
-        y = codec.decode(emb)
+    # with torch.no_grad():
+    #     emb = codec.encode(data)
+    #     print(emb.shape)
+    #     y = codec.decode(emb)
 
-    torchaudio.save("test_enc_official.wav", y[0].cpu(), sr)
+    # torchaudio.save("test_enc_official.wav", y[0].cpu(), sr)
 
+    # ------ Test condition ------
+    t = 0
+    COND_STEP = [0.5, 1, 1.5, 3, 4.5, 6, 9, 12]
+    SAMPLING_STEP = [632, 534, 475, 378, 326, 291, 246, 218]
 
-    
+    assert len(COND_STEP) == len(SAMPLING_STEP)
 
-
-        
-
-
-
-
+    for i, step in enumerate(SAMPLING_STEP):
+        if t >= step:
+            break
+    print(COND_STEP[i])

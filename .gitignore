@@ -1,3 +1,4 @@
+__pycache__/
 require-short.txt
 *.wav
 test_enc_official.wav
@@ -35,3 +36,5 @@ srcs/**/__pycache__/
 ckpts/
 scripts_v2.txt
 scripts_v3.txt
+*.pt
+entropy_results/

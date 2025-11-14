@@ -372,8 +372,8 @@ class Unet1D(nn.Module):
             for r in ratios:
                 self.upsampling_layers.append(
                     # SConvTranspose1d(cond_channels, cond_channels, kernel_size = r*2, stride=r, causal=False, trim_right_ratio=True))
-                    # UpsampleTranspose1d(cond_channels, cond_channels, kernel_size = r*2, stride=r, causal=False, trim_right_ratio=True)
-                    Upsample(cond_channels, cond_channels, scale_factor=r)
+                    UpsampleTranspose1d(cond_channels, cond_channels, kernel_size = r*2, stride=r, causal=False, trim_right_ratio=True)
+                    # Upsample(cond_channels, cond_channels, scale_factor=r)
                 )
 
 

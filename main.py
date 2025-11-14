@@ -27,14 +27,14 @@ from torch.utils.data.distributed import DistributedSampler
 
 # from ema_pytorch import EMA
 
-from .utils import EMA, logging, save_checkpoints, load_from_checkpoint, log_params, nn_parameters
-from .losses import melspec_loss_fn
-from .model import DiffAudioRep
+from srcs.utils import EMA, logging, save_checkpoints, load_from_checkpoint, log_params, nn_parameters
+from srcs.losses import melspec_loss_fn
+from srcs.model import DiffAudioRep
 # from .dataset import EnCodec_data
-from .dataset_libri import Dataset_Libri
-from .dataset_max import Dataset_Max
-from .msstftd import MultiScaleSTFTDiscriminator as MSDisc
-from .dacdisc import Discriminator as DACDisc
+from srcs.dataset_libri import Dataset_Libri
+from srcs.dataset_max import Dataset_Max
+from srcs.msstftd import MultiScaleSTFTDiscriminator as MSDisc
+from srcs.dacdisc import Discriminator as DACDisc
 
 print('All package loaded.')
 
@@ -139,25 +139,24 @@ def run_dac_disc_loss(disc, s, s_hat):
     
 def get_model(inp_args):
     
-    # other_cond = True if inp_args.discrete_AE else False
-    other_cond = True
+    other_cond = False if inp_args.discrete_type == '' else True
     
     model = DiffAudioRep(other_cond=other_cond, **vars(inp_args)).to(device)
-
-    # if inp_args.continuous_AE:
-    #     # load_from_checkpoint(model.continuous_AE, f'saved_models/{inp_args.continuous_AE}/model_best.amlt')
-    #     load_from_checkpoint(model.continuous_AE, inp_args.continuous_AE)
-    # # fake()
-    # if inp_args.discrete_AE:
-    #     # load_from_checkpoint(model.discrete_AE, f'saved_models/{inp_args.discrete_AE}/model_best.amlt', strict=False)
-    #     load_from_checkpoint(model.discrete_AE, inp_args.discrete_AE)
 
     if inp_args.load_model:
         # model_path = f'saved_models/{inp_args.load_model}/model_best.amlt'
         model_path = inp_args.load_model
-        load_from_checkpoint(model, model_path)
+        load_from_checkpoint(model, model_path, strict=False)
+    
+    if inp_args.run_ddp:
+        model.to('cuda:' + str(local_rank))
+        model = nn.parallel.DistributedDataParallel(model, device_ids=[local_rank], find_unused_parameters=False)   
+        if inp_args.use_disc:
+            disc = nn.parallel.DistributedDataParallel(disc, device_ids=[local_rank])
+    else:
+        model.to(device)
 
-    return model.to(device)
+    return model
 
 
 def get_disc(inp_args):
@@ -173,7 +172,6 @@ def get_disc(inp_args):
     else:
         return None
     
-
     
 def synthesis(inp_args):
     
@@ -231,15 +229,32 @@ def synthesis(inp_args):
 
             seq_length = int(wav.shape[-1] / model.continuous_AE.compression_rate) # TODO
             
-            x_sample_infill = model.sample(wav, seq_length, midway_t, lam, clip_denoised=True)
+            x_sample_infill, entropy_step = model.sample(wav, seq_length, midway_t, lam, clip_denoised=False)
 
+            entropy_step = torch.tensor(entropy_step)
+
+            torch.save(entropy_step, 'entropy_results/1104_uncond_cos.pt')
+
+            # plt.plot(range(len(entropy_step)-1), entropy_step[1:])
+            # plt.savefig('entropy_step_uncond_nxt.jpg')
+            # plt.clf()
+            # cum_ent = torch.cumsum(entropy_step, dim=0)
+
+            # plt.plot(range(len(entropy_step)-1), cum_ent[1:])
+            # plt.savefig('cum_entropy_step_uncnd_nxt.jpg')
+            # plt.clf()
+            # # fake()
+            
             # torchaudio.save(os.path.join(out_dir, f'{filename}_{inp_args.cond_bandwidth}_{inp_args.load_model}_full.wav'), x_scale_sample.squeeze(1).cpu(), 16000)
             # torchaudio.save(os.path.join(out_dir, f'{filename}_{inp_args.cond_bandwidth}_{inp_args.load_model}_infill.wav'), x_sample_infill.squeeze(1).cpu(), 16000)
             
             # torchaudio.save(f'{save_path_full}.wav', x_scale_sample.squeeze(1).cpu(), 16000)
             torchaudio.save(f'{save_path}.wav', x_sample_infill.squeeze(1).cpu(), 16000)
+            fake()
             # except:
             #     pass
+
+
 
 
 def train(inp_args, global_rank, local_rank):
@@ -266,19 +281,20 @@ def train(inp_args, global_rank, local_rank):
         raise ValueError('Invalid dataset type.')
         
     if inp_args.run_ddp:
-        train_sampler = DistributedSampler(dataset=train_dataset, shuffle=True) 
-        valid_sampler = DistributedSampler(dataset=valid_dataset, shuffle=True) 
-        train_loader = DataLoader(train_dataset, batch_size=inp_args.batch_size, sampler=train_sampler, pin_memory=True)
-        valid_loader = DataLoader(valid_dataset, batch_size=inp_args.batch_size, sampler=valid_sampler, pin_memory=True)
+        train_sampler = DistributedSampler(dataset=train_dataset, shuffle=True, drop_last=True) 
+        valid_sampler = DistributedSampler(dataset=valid_dataset, shuffle=True, drop_last=True) 
+        train_loader = DataLoader(train_dataset, batch_size=inp_args.batch_size, sampler=train_sampler, pin_memory=True, num_workers=inp_args.num_workers)
+        valid_loader = DataLoader(valid_dataset, batch_size=inp_args.batch_size, sampler=valid_sampler, pin_memory=True, num_workers=inp_args.num_workers)
         
         torch.manual_seed(global_rank)  
         torch.cuda.set_device(local_rank)
+        torch.cuda.empty_cache()
     else:
-        train_loader = DataLoader(train_dataset, batch_size=inp_args.batch_size, pin_memory=True, num_workers=4)
-        valid_loader = DataLoader(valid_dataset, batch_size=inp_args.batch_size, pin_memory=True, num_workers=4)
+        train_loader = DataLoader(train_dataset, batch_size=inp_args.batch_size, pin_memory=True, num_workers=inp_args.num_workers)
+        valid_loader = DataLoader(valid_dataset, batch_size=inp_args.batch_size, pin_memory=True, num_workers=inp_args.num_workers)
         global_rank = 0
         local_rank = 0
-
+    
 
     model = get_model(inp_args)
     disc = get_disc(inp_args)
@@ -290,23 +306,21 @@ def train(inp_args, global_rank, local_rank):
     optimizer_G = optim.Adam(model.parameters(), lr=inp_args.lr)
     optimizer_D = optim.Adam(disc.parameters(), lr=3e-4, betas=(0.5, 0.9)) if inp_args.use_disc else None
 
-    if inp_args.run_ddp:
-        model = nn.parallel.DistributedDataParallel(model, device_ids=[local_rank], find_unused_parameters=False)   
-        if inp_args.use_disc:
-            disc = nn.parallel.DistributedDataParallel(disc, device_ids=[local_rank])
-
+    
     # run = Run.get_context()
     best_loss = torch.tensor(float('inf'))
     save_on_every = 100000 if not inp_args.debug else 1
 
     step = inp_args.load_step if inp_args.load_step is not None else 0 
+    epoch = 0
     while step < 1000000:
         if step == 0:
             print('Starts training ...')
         if inp_args.run_ddp:
-            train_loader.sampler.set_epoch(step)
+            train_sampler.set_epoch(step)
             
         model.train()
+
         start_time = time.time()
         
         tr_losses, step = train_loop(
@@ -323,7 +337,7 @@ def train(inp_args, global_rank, local_rank):
             debug = inp_args.debug)
 
         val_losses = valid_loop(model=model, data_loader=valid_loader, debug=inp_args.debug)
-        
+
         if inp_args.debug:
             print([val.item() for val in val_losses.values()])
         else:
@@ -336,10 +350,14 @@ def train(inp_args, global_rank, local_rank):
             if vall < best_loss:
                 best_loss = vall
                 save_checkpoints(model, inp_args.save_dir, inp_args.exp_name, ema, disc, note='best')
-            if step % save_on_every == 0 and step > 0:
+            # if step % save_on_every == 0 and step > 0:
+            if epoch % 200 == 0:
                 save_checkpoints(model, inp_args.save_dir, inp_args.exp_name, ema, disc, note=str(step))
             end_time = time.time()
-            logging(step, tr_losses, val_losses, end_time-start_time, inp_args.exp_name, best_loss)
+            
+            epoch += 1
+            if epoch % 10 == 0:
+                logging(step, tr_losses, val_losses, end_time-start_time, inp_args.exp_name, best_loss)
                 
 def train_loop(model=None, ema=None, disc=None, data_loader=None, optimizer_G=None, optimizer_D=None, use_disc=None, disc_freq=None, writer=None, step = None, debug=None):
     
@@ -413,13 +431,12 @@ def valid_loop(model, data_loader, debug):
         # Add to the a global dict after every batch
         for key, value in nums.items():
             tot_nums[key] = tot_nums.get(key, 0) + value.detach().data.cpu()
-
         if debug:
             break
 
     for key, value in tot_nums.items():
         tot_nums[key] = tot_nums[key] / (idx + 1)
-
+    
     return tot_nums
 
 def load_dac(model_type, tag):
@@ -516,6 +533,7 @@ if __name__ == '__main__':
     parser.add_argument('--debug', dest='debug', action='store_true')
     parser.add_argument('--lr', type=float, default=5e-4)    
     parser.add_argument('--batch_size', type=int, default=20)  
+    parser.add_argument('--num_workers', type=int, default=8) 
     parser.add_argument('--exp_name', type=str, default='')
     parser.add_argument('--load_model', type=str, default='')
     parser.add_argument('--load_step', type=int, default=0)
@@ -528,10 +546,14 @@ if __name__ == '__main__':
 
     # Encoder and decoder
     parser.add_argument('--continuous_type', type=str, default="VAE_8")
-    parser.add_argument('--discrete_type', type=str, default="Encodec")
+    parser.add_argument('--ratios', nargs='+', type=int, default=[8])
+
+    parser.add_argument('--discrete_type', type=str, default="") # When "", unconditional model; "Encodec" or "DAC"
+    parser.add_argument('--cond_bandwidth', type=float, default=1.5)
+    parser.add_argument('--multi_cond', dest='multi_cond', action='store_true')
     
     # Diff model
-    parser.add_argument('--upsampling_ratios', nargs='+', type=int, default=[5, 4, 2])
+    parser.add_argument('--upsampling_ratios', nargs='+', type=int, default=[])
     parser.add_argument('--inp_channels', type=int, default=128) # The previous rep_dim
     parser.add_argument('--cond_channels', type=int, default=128) # The previous cond_dim
     parser.add_argument('--model_type', type=str, default='unet')  
