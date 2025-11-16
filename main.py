@@ -192,30 +192,13 @@ def synthesis(inp_args):
     with torch.no_grad():
         for wav_file in tqdm(glob.glob(os.path.join(inp_args.input_dir, '**/*.wav'), recursive=True)):
         
-            # filename = wav_file.split('/')[-1][:-4]
             filename = wav_file[len(inp_args.input_dir):][:-4]
             save_path = inp_args.output_dir + filename
 
-            
-            # out_dir_full = inp_args.output_dir + '_full'
-            # out_dir_infill = inp_args.output_dir + '_infill'
-            # if not os.path.exists(out_dir_infill):
-            #     os.mkdir(out_dir_infill)
-            # if not os.path.exists(out_dir_full):
-            #     os.mkdir(out_dir_full)
-            
-            # save_path_full = out_dir_full + filename
-            # full_folder = save_path_full[: -(len(save_path_full.split('/')[-1])+1)]
-            # if not os.path.exists(full_folder):
-            #     os.mkdir(full_folder)
-                
-            # save_path_fill = out_dir_infill + filename
             folder = save_path[: -(len(save_path.split('/')[-1])+1)]
             if not os.path.exists(folder):
                 os.makedirs(folder)
             
-            # print(wav_file)
-            # try:
             wav, sr = torchaudio.load(wav_file)
             wav = torchaudio.functional.resample(wav, orig_freq=sr, new_freq=16000)
             wav = wav.unsqueeze(1).to(torch.float).to(device)
@@ -251,10 +234,6 @@ def synthesis(inp_args):
             # torchaudio.save(f'{save_path_full}.wav', x_scale_sample.squeeze(1).cpu(), 16000)
             torchaudio.save(f'{save_path}.wav', x_sample_infill.squeeze(1).cpu(), 16000)
             fake()
-            # except:
-            #     pass
-
-
 
 
 def train(inp_args, global_rank, local_rank):
@@ -551,6 +530,7 @@ if __name__ == '__main__':
     parser.add_argument('--discrete_type', type=str, default="") # When "", unconditional model; "Encodec" or "DAC"
     parser.add_argument('--cond_bandwidth', type=float, default=1.5)
     parser.add_argument('--multi_cond', dest='multi_cond', action='store_true')
+    parser.add_argument('--random_condition', dest='random_condition', action='store_true')
     
     # Diff model
     parser.add_argument('--upsampling_ratios', nargs='+', type=int, default=[])
@@ -567,6 +547,7 @@ if __name__ == '__main__':
     parser.add_argument('--use_film', dest='use_film', action='store_true')
     parser.add_argument('--unet_scale_cond', dest='unet_scale_cond', action='store_true')
     parser.add_argument('--unet_scale_x', dest='unet_scale_x', action='store_true')
+    parser.add_argument('--use_shortcut', dest='use_shortcut', action='store_true')
     
     # Dist
     parser.add_argument('--use_disc', dest='use_disc', action='store_true')

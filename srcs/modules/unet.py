@@ -276,6 +276,8 @@ class Unet1D(nn.Module):
         unet_scale_x = False,
         unet_scale_cond = True, 
         upsampling_ratios = [5, 4, 2],
+
+        use_shortcut = False,
     ):
         super().__init__()
 
@@ -293,6 +295,8 @@ class Unet1D(nn.Module):
 
         self.unet_scale_cond = unet_scale_cond
         self.unet_scale_x = unet_scale_x
+
+        self.use_shortcut = use_shortcut
 
         input_channels = inp_channels * (2 if self_condition else 1)
         
@@ -328,6 +332,15 @@ class Unet1D(nn.Module):
             nn.GELU(),
             nn.Linear(time_dim, time_dim)
         )
+
+        self.dt_mlp = nn.Sequential(
+            sinu_pos_emb,
+            nn.Linear(fourier_dim, time_dim),
+            nn.GELU(),
+            nn.Linear(time_dim, time_dim)
+        )
+
+
 
         # layers
         self.downs = nn.ModuleList([])
@@ -388,7 +401,7 @@ class Unet1D(nn.Module):
 
         return x_rep, scale
 
-    def forward(self, x, time, x_cond = None):
+    def forward(self, x, time, x_cond = None, dt=None):
 
         # print(x.shape)
         # print(x_cond.shape)
@@ -414,6 +427,10 @@ class Unet1D(nn.Module):
         r = x.clone()
 
         t = self.time_mlp(time)
+        if self.use_shortcut:
+            assert dt is not None
+            dt = self.dt_mlp(dt)
+            t = dt + t
 
         h = []
         for block1, block2, attn, downsample in self.downs:

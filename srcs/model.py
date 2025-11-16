@@ -9,7 +9,7 @@ from stable_audio_tools.models import create_model_from_config
 
 from .quantization import ResidualVectorQuantizer
 from .modules import SEANetEncoder, SEANetDecoder, Unet1D, TransformerDDPM, UNet2D, AE
-from .losses import GaussianDiffusion1D, prior_loss_fn, sdr_loss, melspec_loss_fn, DenoiseDiffusion
+from .losses import GaussianDiffusion1D, ShortcutModel, prior_loss_fn, sdr_loss, melspec_loss_fn, DenoiseDiffusion
 from .utils import load_from_checkpoint, gaussian_kl_diag
 
 use_cuda = torch.cuda.is_available()
@@ -36,6 +36,42 @@ def reshape_to_3dim(x):
         return x.squeeze(1)
     else:
         raise ValueError('Input has an unexpected shape:', x.shape)
+
+
+# https://github.com/yukara-ikemiya/modified-shortcut-models-pytorch/blob/master/src/trainer.py
+class TimestepSampler:
+    def __init__(
+        self,
+        rate_self_consistency: float = 0.25,
+        min_dt: float = 0.0078125  # 1/128
+    ):
+        """
+        rate_self_consistency: Propotion of samples for self-consistency term (default: 0.25)
+        min_dt: Minimum value of 'dt' (default: 1/128)
+        """
+        assert 0 <= rate_self_consistency <= 1.0
+        self.rate_sc = rate_self_consistency
+        self.min_dt = min_dt
+
+    def sample_t(self, num: int, device):
+        num_sc = round(num * self.rate_sc)
+        num_fm = num - num_sc
+
+        # t for flow-matching term
+        t_fm = torch.rand(num_fm, device=device)  # 0 -- 1
+        dt_fm = torch.zeros(num_fm, device=device)
+
+        # t/dt for self-consistency term
+        t_sc = torch.rand(num_sc, device=device) * (1 - self.min_dt)  # 0 -- 1-min_dt
+        max_dt = 1. - t_sc
+        dt_sc = self.min_dt + torch.rand(num_sc, device=device) * (max_dt - self.min_dt)  # min_dt -- 1-t
+
+        t = torch.cat([t_sc, t_fm])
+        dt = torch.cat([dt_sc, dt_fm])
+        assert len(t) == len(dt) == num
+
+        return t, dt, num_sc
+
 
 class VAE(nn.Module):
     def __init__(self, model_config='config/vae_2458.json', ckpt_path='ckpts/VAE_speech_2458.ckpt'):
@@ -260,13 +296,34 @@ class DAC(nn.Module):
 
 
 class DiffAudioRep(nn.Module):
-    def __init__(self, discrete_type='Encodec', continuous_type='VAE_2458', inp_channels=128, quantization=False, self_condition=False, other_cond=False, seq_length=320, ratios=[8],scaling_frame=False, scaling_feature=False, scaling_global=False, scaling_dim=False, sampling_timesteps=None, cond_global=1, cond_channels=128, upsampling_ratios=[5, 4, 2], unet_scale_x = False, unet_scale_cond = True, cond_bandwidth=3, continuous_nearest=False, multi_cond=False, **base_kwargs):
+    def __init__(self, 
+                 discrete_type='Encodec', 
+                 continuous_type='VAE_2458', 
+                 inp_channels=128, 
+                 cond_channels=128, 
+                 quantization=False, 
+                 cond_bandwidth=3, 
+                 self_condition=False, 
+                 other_cond=False, 
+                 seq_length=320, sampling_timesteps=None, 
+                 ratios=[8],
+                 upsampling_ratios=[5, 4, 2], 
+                 scaling_frame=False, scaling_feature=False, scaling_global=False, scaling_dim=False, cond_global=None,
+                 unet_scale_x = False, unet_scale_cond = True, 
+                 multi_cond=False, 
+                 use_shortcut=False, 
+                 random_condition = False,
+                 **base_kwargs):
 
         super(). __init__()
 
         self.quantization = quantization
         self.cond_bandwidth = cond_bandwidth
         self.multi_cond = multi_cond
+        self.random_condition = random_condition
+
+        self.use_shortcut = use_shortcut
+        self.inp_channels = inp_channels
         
         ENCODEC_RATIO = [8, 5, 4, 2]
 
@@ -308,9 +365,13 @@ class DiffAudioRep(nn.Module):
         self.cond_global = cond_global
         self.unet_scale_x = unet_scale_x
         
-        diff_backbone = Unet1D(dim = base_kwargs['diff_dims'], dim_mults=(1, 2, 2, 4, 4), inp_channels=inp_channels, self_condition=self_condition, other_cond=other_cond, scaling_frame=scaling_frame, scaling_feature=scaling_feature, scaling_global=scaling_global, scaling_dim=scaling_dim, cond_global=cond_global, cond_channels=cond_channels, upsampling_ratios=upsampling_ratios, unet_scale_x=unet_scale_x, unet_scale_cond=unet_scale_cond)
+        diff_backbone = Unet1D(dim = base_kwargs['diff_dims'], dim_mults=(1, 2, 2, 4, 4), inp_channels=inp_channels, self_condition=self_condition, other_cond=other_cond, scaling_frame=scaling_frame, scaling_feature=scaling_feature, scaling_global=scaling_global, scaling_dim=scaling_dim, cond_global=cond_global, cond_channels=cond_channels, upsampling_ratios=upsampling_ratios, unet_scale_x=unet_scale_x, unet_scale_cond=unet_scale_cond, use_shortcut=use_shortcut)
 
-        self.diffusion = GaussianDiffusion1D(model=diff_backbone, seq_length=seq_length, sampling_timesteps=sampling_timesteps)              
+        if not use_shortcut: # Standard DDPM
+            self.diffusion = GaussianDiffusion1D(model=diff_backbone, seq_length=seq_length, sampling_timesteps=sampling_timesteps)    
+        elif use_shortcut:
+            self.ts_sampler = TimestepSampler(rate_self_consistency=0.25, min_dt=1/128)
+            self.diffusion = ShortcutModel(model=diff_backbone)    
 
 
     def scaling(self, x_rep, global_max=1):
@@ -342,6 +403,9 @@ class DiffAudioRep(nn.Module):
         SAMPLING_STEP = [632, 534, 475, 378, 326, 291, 246, 218]
 
         assert len(COND_STEP) == len(SAMPLING_STEP)
+
+        if self.random_condition:
+            return COND_STEP[torch.randint(len(COND_STEP), (1,))]
 
         for i, step in enumerate(SAMPLING_STEP):
             if t >= step:
@@ -387,12 +451,16 @@ class DiffAudioRep(nn.Module):
        
         rep = reshape_to_3dim(rep)
 
-        if t is not None:
+        if self.multi_cond and t is not None:
             t = t.expand(x.shape[0],)
-            # print(t.shape)
-            # fake()
+        
+        if self.use_shortcut:
+            t, dt, num_sc = self.ts_sampler.sample_t(x.shape[0], device=x.device)
+        else:
+            dt = num_sc = None
 
-        diff_loss, predicted_x_start, *other_reps_from_diff = self.diffusion(rep.detach(), cond, t=t) 
+        diff_loss, predicted_x_start, *other_reps_from_diff = self.diffusion(rep.detach(), t=t, cond=cond, dt=dt, num_self_consistency=num_sc) 
+
         in_dec = predicted_x_start * scale if scale is not None else predicted_x_start
         
         with torch.no_grad():
@@ -438,7 +506,11 @@ class DiffAudioRep(nn.Module):
         # print(torch.max(cond), torch.min(cond), scale) # (15, -14, 1.7)
         
         # ------ rep diff ----- 
-        sampled_rep, means, vars, pred_noises, x_ts  = self.diffusion.sample(batch_size=1, condition=cond, clip_denoised=clip_denoised)
+        sampled_rep, means, vars, pred_noises, x_ts  = self.diffusion.sample(
+            batch_size=1, 
+            condition=cond, 
+            clip_denoised=clip_denoised, 
+            dim_in=self.inp_channels)
 
         # print(torch.max(sampled_rep), torch.min(sampled_rep))
         entropy_step = self.compute_entropy(x_rep, means, vars, pred_noises, x_ts)
@@ -509,9 +581,7 @@ class DiffAudioRep(nn.Module):
         # # fake()
         
         
-        return ents
-
-
+        # return ents
 
     
 

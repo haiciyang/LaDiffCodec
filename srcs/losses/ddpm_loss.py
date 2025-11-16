@@ -89,7 +89,8 @@ class GaussianDiffusion1D(nn.Module):
         p2_loss_weight_gamma = 0.,
         p2_loss_weight_k = 1,
         ddim_sampling_eta = 0.,
-        auto_normalize = True
+        auto_normalize = True,
+        **kwargs
     ):
         super().__init__()
         self.model = model
@@ -322,7 +323,7 @@ class GaussianDiffusion1D(nn.Module):
         return img
 
     @torch.no_grad()
-    def sample(self, batch_size = 16, condition=None, clip_denoised=True):
+    def sample(self, batch_size = 16, condition=None, clip_denoised=True, **kwargs):
         seq_length, channels = self.seq_length, self.channels
         sample_fn = self.p_sample_loop if not self.is_ddim_sampling else self.ddim_sample
         return sample_fn((batch_size, channels, seq_length), condition, clip_denoised)
@@ -420,7 +421,7 @@ class GaussianDiffusion1D(nn.Module):
         else:
             raise ValueError(f'invalid loss type {self.loss_type}')
 
-    def p_losses(self, x_start, t, cond=None, noise = None):
+    def p_losses(self, x_start, t, cond=None, noise = None, **kwargs):
         b, c, n = x_start.shape
         noise = default(noise, lambda: torch.randn_like(x_start))
 
