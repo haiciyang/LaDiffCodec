@@ -38,3 +38,4 @@ scripts_v2.txt
 scripts_v3.txt
 *.pt
 entropy_results/
+test_results/

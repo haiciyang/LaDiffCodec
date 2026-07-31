@@ -177,6 +177,8 @@ def synthesis(inp_args):
     
     model = get_model(inp_args)
     model.eval()
+
+    model.diffusion.num_timesteps = inp_args.syn_num_timesteps
     
     n_total, n_trainable = nn_parameters(model)
     # print(n_total, n_trainable)
@@ -188,11 +190,19 @@ def synthesis(inp_args):
     # lam = 0.1
     midway_t = inp_args.midway_t
     lam = inp_args.lam
+
+    wav_list = glob.glob(os.path.join(inp_args.input_dir, '**/*.wav'), recursive=True) \
+    + glob.glob(os.path.join(inp_args.input_dir, '**/*.flac'), recursive=True)
+
+    wav_list = wav_list[:200]
     
     with torch.no_grad():
-        for wav_file in tqdm(glob.glob(os.path.join(inp_args.input_dir, '**/*.wav'), recursive=True)):
-        
-            filename = wav_file[len(inp_args.input_dir):][:-4]
+        for wav_file in tqdm(wav_list):
+            
+            if 'flac' in wav_file:
+                filename = wav_file[len(inp_args.input_dir):][:-5]
+            elif 'wav' in wav_file:
+                filename = wav_file[len(inp_args.input_dir):][:-4]
             save_path = inp_args.output_dir + filename
 
             folder = save_path[: -(len(save_path.split('/')[-1])+1)]
@@ -200,6 +210,7 @@ def synthesis(inp_args):
                 os.makedirs(folder)
             
             wav, sr = torchaudio.load(wav_file)
+
             wav = torchaudio.functional.resample(wav, orig_freq=sr, new_freq=16000)
             wav = wav.unsqueeze(1).to(torch.float).to(device)
             
@@ -210,13 +221,28 @@ def synthesis(inp_args):
             length = wav.shape[-1]//5120*5120
             wav = wav[:, :, :length]
 
+            # ------------- Save original -------------------
+            # orig_path = 'test_folders/orig' + filename
+            # folder = orig_path[: -(len(orig_path.split('/')[-1])+1)]
+            # if not os.path.exists(folder):
+            #     os.makedirs(folder)
+
+            # torchaudio.save(f'{orig_path}.wav', wav[0].cpu(), sr)
+            # continue
+            # ------------------------------------------
+
             seq_length = int(wav.shape[-1] / model.continuous_AE.compression_rate) # TODO
             
-            x_sample_infill, entropy_step = model.sample(wav, seq_length, midway_t, lam, clip_denoised=False)
+            x_sample_infill, entropy_step = model.sample(wav, 
+                        seq_length, 
+                        midway_t = midway_t, 
+                        lam = lam, 
+                        use_midway = inp_args.use_midway,
+                        clip_denoised=False)
 
-            entropy_step = torch.tensor(entropy_step)
+            # entropy_step = torch.tensor(entropy_step)
 
-            torch.save(entropy_step, 'entropy_results/1104_uncond_cos.pt')
+            # torch.save(entropy_step, 'entropy_results/1104_uncond_cos.pt')
 
             # plt.plot(range(len(entropy_step)-1), entropy_step[1:])
             # plt.savefig('entropy_step_uncond_nxt.jpg')
@@ -233,7 +259,7 @@ def synthesis(inp_args):
             
             # torchaudio.save(f'{save_path_full}.wav', x_scale_sample.squeeze(1).cpu(), 16000)
             torchaudio.save(f'{save_path}.wav', x_sample_infill.squeeze(1).cpu(), 16000)
-            fake()
+            # fake()
 
 
 def train(inp_args, global_rank, local_rank):
@@ -556,8 +582,11 @@ if __name__ == '__main__':
     # Synthesis
     parser.add_argument('--midway_t', type=int, default=100)
     parser.add_argument('--lam', type=float, default=0.1)
+    parser.add_argument('--use_midway', dest='use_midway', action='store_true')
+    parser.add_argument('--syn_num_timesteps', type=int, default=1000)
     parser.add_argument('--input_dir', type=str, default='eval_wavs/')
     parser.add_argument('--output_dir', type=str, default='output_wavs/')
+
     
     inp_args = parser.parse_args() # Input arguments
     # args = get_args() # Enviornmente arguments

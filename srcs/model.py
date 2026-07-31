@@ -399,8 +399,8 @@ class DiffAudioRep(nn.Module):
     
     def get_bandwidth_by_step(self, t):
 
-        COND_STEP = [0.5, 1, 1.5, 3, 4.5, 6, 9, 12]
-        SAMPLING_STEP = [632, 534, 475, 378, 326, 291, 246, 218]
+        COND_STEP = [1.5, 3, 4.5, 6, 9, 12]
+        SAMPLING_STEP = [475, 378, 326, 291, 246, 218]
 
         assert len(COND_STEP) == len(SAMPLING_STEP)
 
@@ -413,13 +413,13 @@ class DiffAudioRep(nn.Module):
         return COND_STEP[i]
         
     
-    def get_cond(self, x, t):
+    def get_cond(self, x, t=None):
 
-        if self.multi_cond:
-            bandwidth = self.get_bandwidth_by_step(t)
+        if self.multi_cond and self.training:
+            bandwidth = self.get_bandwidth_by_step(t) # Only use for training time
         else:
             bandwidth = self.cond_bandwidth
-        
+
         if self.discrete_AE:
             return self.discrete_AE.encode(x, bandwidth=bandwidth)
         else: # Unconditionl model - not a codec
@@ -482,7 +482,7 @@ class DiffAudioRep(nn.Module):
         return self.discrete_AE(x) 
 
     @torch.no_grad()
-    def sample(self, x, seq_length, sample_type='', midway_t = 100, lam = 0.1, clip_denoised=True):
+    def sample(self, x, seq_length, sample_type='', midway_t = 100, lam = 0.1, use_midway = False, clip_denoised=True):
 
 
         ######## DEBUGGING PURPOSE ##########
@@ -492,9 +492,6 @@ class DiffAudioRep(nn.Module):
         # return x
 
         #####################################
-        
-        midway_t = 100
-        lam = 0.1
         
         self.diffusion.seq_length = seq_length
 
@@ -506,27 +503,42 @@ class DiffAudioRep(nn.Module):
         # print(torch.max(cond), torch.min(cond), scale) # (15, -14, 1.7)
         
         # ------ rep diff ----- 
-        sampled_rep, means, vars, pred_noises, x_ts  = self.diffusion.sample(
-            batch_size=1, 
-            condition=cond, 
-            clip_denoised=clip_denoised, 
-            dim_in=self.inp_channels)
+        if not use_midway:
+            if not self.use_shortcut:
+                sampled_rep, means, vars, pred_noises, x_ts  = self.diffusion.sample(
+                    batch_size=1, 
+                    condition=cond, 
+                    clip_denoised=clip_denoised)
 
-        # print(torch.max(sampled_rep), torch.min(sampled_rep))
-        entropy_step = self.compute_entropy(x_rep, means, vars, pred_noises, x_ts)
-        x_scale_sample = self.decode(sampled_rep * scale)
-        return x_scale_sample, entropy_step
+                # print(torch.max(sampled_rep), torch.min(sampled_rep))
+                entropy_step = self.compute_entropy(x_rep, means, vars, pred_noises, x_ts)
+                x_scale_sample = self.decode(sampled_rep * scale)
 
+                return x_scale_sample, entropy_step
+            else:
+                sampled_rep = self.diffusion.sample(
+                    condition=cond, 
+                    dim_in=self.inp_channels)
+                x_scale_sample = self.decode(sampled_rep * scale)
+
+                return x_scale_sample, None
+                
         # # ----- Infilling ----
-        # infill_img = cond
-        # for layer in self.diffusion.model.upsampling_layers:
-        #     infill_img = layer(infill_img)
-        # infill_img = infill_img / torch.max(torch.abs(infill_img.flatten())) + 1e-8
+        elif use_midway:
+            infill_img = cond
+            # for layer in self.diffusion.model.upsampling_layers:
+            #     infill_img = layer(infill_img)
+            infill_img = infill_img / torch.max(torch.abs(infill_img.flatten())) + 1e-8
 
-        # sample = self.diffusion.infilling(infill_img = infill_img, condition=cond, midway_t=midway_t, lam=lam)
-        # x_sample_infill = self.continuous_AE.decoder(sample * scale)
+            sample = self.diffusion.infillin_new(
+                infill_img = infill_img, 
+                condition=cond, 
+                midway_t=midway_t, 
+                lam=lam,
+                clip_denoised=clip_denoised)
+            x_sample_infill = self.decode(sample * scale)
         
-        # return  x_sample_infill  
+        return  x_sample_infill, None # Return a dummy placeholder for entropy steop
 
     def compute_entropy(self, x_start, means, vars, pred_noises,x_ts):
         
@@ -553,11 +565,11 @@ class DiffAudioRep(nn.Module):
                 sigma_special_default = "tilde_beta",
             )
             # print(kl['L_t'], torch.mean(kl['mu_p']), torch.mean(kl['mu_q']), torch.mean((kl['mu_p']-kl['mu_q'])**2), kl['var_q'])
-            print(kl['L_t'], torch.mean((kl['mu_p']-kl['mu_q'])**2), kl['var_q'])
+            # print(kl['L_t'], torch.mean((kl['mu_p']-kl['mu_q'])**2), kl['var_q'])
             sum_all += kl['L_t']
             ent.append(kl['L_t'])
         
-        print(sum_all)
+        # print(sum_all)
 
         return ent
         

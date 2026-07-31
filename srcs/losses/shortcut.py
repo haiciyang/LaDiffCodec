@@ -30,6 +30,7 @@ class ShortcutModel(nn.Module):
         self.model = model
         self.input_shape = None
         self._seq_length = seq_length
+        self.num_timesteps=128
 
     @property
     def seq_length(self):
@@ -91,23 +92,32 @@ class ShortcutModel(nn.Module):
             # output['loss_sc'] = loss_sc.detach()
 
         # output['loss'] = loss
-        v_out[:num_self_consistency] = v_out[:num_self_consistency] * dt[:num_self_consistency]
-        x_out = v_out + x0
+        # print(v_out.shape)
+        # print(dt.shape)
+        # print(num_self_consistency, v_out[:num_self_consistency].shape, dt[:num_self_consistency].shape)
+
+        out = v_out.clone()
+        out[:num_self_consistency] = out[:num_self_consistency] * dt[:num_self_consistency][:, None, None].detach()
+
+        x_out = out + x0
+        x_out.detach()
         return loss, x_out, None, None
 
     @torch.no_grad()
     def sample(
         self,
-        cond,
+        condition,
         dim_in,
         n_step: tp.Optional[int] = None,
         dt_list: tp.Optional[tp.List[int]] = None,
         disable_shortcut: bool = False,
         **kwargs
     ):
-        assert exists(n_step) or exists(dt_list)
-        device = cond.device
-        num_sample = len(cond)
+        # assert exists(n_step) or exists(dt_list)
+        if n_step is None:
+            n_step = self.num_timesteps
+        device = condition.device
+        num_sample = len(condition)
 
         if exists(n_step):
             dt_list = [1. / n_step] * n_step
@@ -128,7 +138,7 @@ class ShortcutModel(nn.Module):
             else:
                 dt_in = dt
 
-            vel = self.model(x, t_cur, cond, dt_in)
+            vel = self.model(x, t_cur, condition, dt_in)
 
             # update
             x += vel * dt[:, None, None]

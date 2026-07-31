@@ -268,7 +268,7 @@ class GaussianDiffusion1D(nn.Module):
         pred_noises = []
         imgs = []
 
-        # for t in tqdm(reversed(range(0, self.num_timesteps)), desc = 'sampling loop time step', total = self.num_timesteps):
+
         for t in reversed(range(0, self.num_timesteps)):
             cond = x_start if self.self_condition else condition
             imgs.append(img)
@@ -329,7 +329,7 @@ class GaussianDiffusion1D(nn.Module):
         return sample_fn((batch_size, channels, seq_length), condition, clip_denoised)
 
     @torch.no_grad()
-    def interpolate(self, x1, x2, t = None, lam = 0.5):
+    def interpolate(self, x1, x2, t = None, lam = 0.5, clip_denoised=True):
         b, *_, device = *x1.shape, x1.device
         t = default(t, self.num_timesteps - 1)
 
@@ -344,34 +344,25 @@ class GaussianDiffusion1D(nn.Module):
 
         for i in tqdm(reversed(range(0, t)), desc = 'interpolation sample time step', total = t):
             self_cond = x_start if self.self_condition else None
-            img, x_start = self.p_sample(img, i, self_cond)
+            img, x_start = self.p_sample(img, i, self_cond, clip_denoised=clip_denoised)
 
         return img
 
     @torch.no_grad()
-    def infilling(self, infill_img, condition, midway_t = None, noise = None, offset=0, lam = 0.8):
+    def infilling(self, infill_img, condition, midway_t = None, noise = None, offset=0, lam = 0.8, clip_denoised=True):
 
         batch, device = condition.shape[0], self.betas.device
 
-        # img = torch.randn(condition.shape, device=device)
         img = torch.rand((batch, self.channels, self.seq_length)).to(device)
 
-        # infill_img = condition
-        # if img.shape != infill_img.shape:
-        #     for layer in self.model.upsampling_layers:
-        #         infill_img = layer(infill_img)
-
         x_start = None
-
         offset = offset
+        print(midway_t, lam)
 
-        # for t in tqdm(reversed(range(0, midway_t)), desc = 'sampling loop time step', total = self.sampling_timesteps):
         for t in reversed(range(0, midway_t)):
-            
             cond = x_start if self.self_condition else condition
-            img, x_start = self.p_sample(img, t, cond)
+            img, x_start, *_ = self.p_sample(img, t, cond, clip_denoised=clip_denoised)
 
-            # noise = default(noise, lambda: torch.randn_like(condition))
             noise = default(noise, lambda: torch.randn_like(infill_img))
             
             # if t > midway_t:
@@ -380,9 +371,33 @@ class GaussianDiffusion1D(nn.Module):
 
             img = (1 - lam) * img + lam * infill_img
 
-            infill_img, x_start = self.p_sample(infill_img, t, cond)
+            infill_img, x_start, *_ = self.p_sample(infill_img, t, cond, clip_denoised=clip_denoised)
             c_t = infill_img
             img = (1 - lam) * img + lam * c_t
+
+        # img = self.unnormalize(img)
+        return img
+
+
+    @torch.no_grad()
+    def infilling_new(self, infill_img, condition, midway_t = None, noise = None, offset=0, lam = 0.8, clip_denoised=True):
+        # An alternative implementation 11/24/25
+        
+        batch, device = condition.shape[0], self.betas.device
+
+        img = torch.rand((batch, self.channels, self.seq_length)).to(device)
+
+        x_start = None
+        offset = offset
+        print(midway_t, lam)
+
+        for t in reversed(range(0, midway_t)):
+            cond = x_start if self.self_condition else condition
+            if lam != 1:
+                img, x_start, *_ = self.p_sample(img, t, infill_img, clip_denoised=clip_denoised)
+            infill_img, x_start, *_ = self.p_sample(infill_img, t, cond, clip_denoised=clip_denoised)
+
+            img = (1 - lam) * img + lam * infill_img
 
         # img = self.unnormalize(img)
         return img
